@@ -1,0 +1,49 @@
+﻿<!DOCTYPE html>
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <title>raw</title>
+  <script src="../raw.js"></script>
+  <script src="demo.js"></script>
+</head>
+
+<body>
+  <script>    
+    demo({}, function (app, renderer, camera) {
+      app.add_mesh(raw.geometry.cube({ size: 2, divs: 4 }), new raw.shading.shaded_material(), {}, function (m) {
+        raw.math.vec3.set(m.render_item.items[0].material.ambient, 1, 0.5, 0);
+        m.transform.position[0] = -3.1;
+      });
+
+           
+      app.begin_loop(function (delta) {
+        app.tick_debug(delta);
+      }, 1 / 65);
+
+      
+
+      var pg = raw.geometry.plane({ width: 300, height: 300, divs: 8 });
+      pg.scale_position_rotation(1, 1, 1, 0, 0, 0, -RD(90), 0, 0);
+      app.add_mesh(pg, new raw.shading.shaded_material(), {}, function (m) {
+        m.render_item.items[0].material.texture = raw.webgl.texture.from_url("res/r10.jpg", true);
+        raw.math.mat3.translate_rotate_scale(m.render_item.items[0].material.texture_matrix, 0, 0, 32, 32, 0);
+        m.transform.position[1] = -0.1;
+        m.render_item.items[0].material.flags += raw.SHADING.RECEIVE_SHADOW;
+        raw.math.vec3.set(m.render_item.items[0].material.ambient, 0, 0.5, 0);
+      });
+
+      
+      app.add_random_grid(125, 12, function (m) {
+         m.render_item.items[0].material.flags += raw.SHADING.CAST_SHADOW + raw.SHADING.RECEIVE_SHADOW;
+        if (Math.floor(Math.random() * 5) === 2) {
+          m.render_item.items[0].material.set_tansparency(Math.max(Math.random(), 0.6));
+        }
+      });
+
+      
+    });
+
+  </script>
+</body>
+</html>
