@@ -128,6 +128,9 @@ function processAll() {
 processAll();
 
 let requireProcces = false;
+
+
+
 function watchBuild() {
   function checkForProcess() {
     if (requireProcces) {
@@ -137,7 +140,25 @@ function watchBuild() {
     setTimeout(checkForProcess, 2000);
   }
   checkForProcess();
+  function watchFolder(fl,ext) {
+    fs.watch(__dirname +fl, (eventType, filename) => {
+      if (filename) {
+        if (filename.endsWith(ext)) {
+          requireProcces = true;
+        }
+      }
+
+    });
+  }
+
   console.log('watching files changes ......................');
+  watchFolder('/src', '.js');  
+  watchFolder('/src', '.glsl');  
+  watchFolder('/src/systems', '.js');
+  watchFolder('/src/systems', '.glsl');
+  watchFolder('/src/shaders', '.glsl');
+
+  /*
   fs.watch(__dirname + '/src', (eventType, filename) => {
     if (filename) {
       if (filename.endsWith('.js') || filename.endsWith('.glsl')) {
@@ -155,6 +176,7 @@ function watchBuild() {
     }
 
   });
+  */
 }
 
 if (process.argv && process.argv.length > 2) {

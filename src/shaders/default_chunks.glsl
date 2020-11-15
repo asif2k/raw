@@ -179,14 +179,7 @@ gl_FragColor=vec4(v_box_color_rw,1.0);
 }
 
 
-/*chunk-pickable-mesh*/
 
-<?=chunk('precision')?>
-
-uniform vec4 u_color_id_rw;
-void fragment(void) {			
-	gl_FragColor=u_color_id_rw/255.0;
-}
 
 
 /*chunk-quat-dquat*/

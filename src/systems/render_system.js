@@ -1,6 +1,8 @@
 
 raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
 
+  var glsl = raw.webgl.shader.create_chunks_lib(import('systems/render_system.glsl'));
+
   function setup_gl_state(gl) {
     gl.states = { depthMask: false, blendFunc0: -1, blendFunc1: -1, framebuffer: undefined };
 
@@ -581,24 +583,7 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
         -1, 1
       ])
     }
-    var shdr = raw.webgl.shader.parse(`
-          attribute vec2 a_position_rw;
-          uniform vec4 u_pos_size;
-          const vec2 madd=vec2(0.5,0.5);
-          varying vec2 v_uv_rw;
-          void vertex()
-          {
-            gl_Position = vec4((a_position_rw.xy*u_pos_size.zw)+u_pos_size.xy,0.0,1.0);	
-	          v_uv_rw = a_position_rw.xy*madd+madd;  
-          }
-          <?=chunk('precision')?>
-          uniform sampler2D u_texture_rw;
-          varying vec2 v_uv_rw;
-          void fragment(void)
-          {	
-            gl_FragColor = texture2D(u_texture_rw, v_uv_rw);	
-          }
-`);
+    var shdr = raw.webgl.shader.parse(glsl["textured-quad"]);
     var u_pos_size = raw.math.vec4();
     return function (texture, left, top, width, height) {
       u_pos_size[0] = left;
@@ -837,12 +822,11 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
         return shadow_map;
       }
 
-      var default_shadows = raw.webgl.shader.create_chunks_lib(import('shaders/default_shadows.glsl'));
-
+      
       function get_shadow_map_shader(light_type, shader) {
         if (light_type === 0) {
           if (!shader.default_shadow_map) {
-            shader.default_shadow_map = shader.extend(default_shadows['map'], { fragment: false });
+            shader.default_shadow_map = shader.extend(glsl['render-shadow-map'], { fragment: false });
             shader.default_shadow_map.shadow_shader = true;
           }
           return shader.default_shadow_map;
@@ -852,7 +836,7 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
       function get_shadow_receiver_shader(light_type, shader) {
         if (light_type === 0) {
           if (!shader.default_shadow_receiver) {
-            shader.default_shadow_receiver = shader.extend(default_shadows['receiver'], { fragment: false });
+            shader.default_shadow_receiver = shader.extend(glsl['receive-shadow'], { fragment: false });
             shader.default_shadow_receiver.shadow_shader = true;
           }
           return shader.default_shadow_receiver;
@@ -1057,7 +1041,7 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
           mesh = pickable_meshes.data[i0];
 
           if (!mesh.material.shader.pickable) {
-            mesh.material.shader.pickable = mesh.material.shader.extend(raw.webgl.shader.get_chunk('pickable-mesh'), { fragment: false });
+            mesh.material.shader.pickable = mesh.material.shader.extend(glsl['pickable-mesh'], { fragment: false });
           }
 
           if (this.use_shader(mesh.material.shader.pickable)) {

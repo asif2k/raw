@@ -5,11 +5,14 @@ import * from './ecs.js'
 import * from './webgl.js'
 import * from './geometry.js'
 import * from './common.js'
-import * from './transform.js'
 import * from './shading.js'
 import * from './rendering.js'
-import * from './skeleton_system.js'
-import * from './render_system.js'
+import * from './systems/transform_system.js'
+import * from './systems/camera_system.js'
+import * from './systems/animation_system.js'
+import * from './systems/skeleton_system.js'
+import * from './systems/render_list_system.js'
+import * from './systems/render_system.js'
 
 
 console.log(raw);

@@ -1,4 +1,32 @@
-﻿/*chunk-map*/
+﻿/*chunk-textured-quad*/
+attribute vec2 a_position_rw;
+uniform vec4 u_pos_size;
+const vec2 madd=vec2(0.5,0.5);
+varying vec2 v_uv_rw;
+void vertex()
+{
+gl_Position = vec4((a_position_rw.xy*u_pos_size.zw)+u_pos_size.xy,0.0,1.0);	
+	v_uv_rw = a_position_rw.xy*madd+madd;  
+}
+<?=chunk('precision')?>
+uniform sampler2D u_texture_rw;
+varying vec2 v_uv_rw;
+void fragment(void)
+{	
+gl_FragColor = texture2D(u_texture_rw, v_uv_rw);	
+}
+
+/*chunk-pickable-mesh*/
+
+<?=chunk('precision')?>
+
+uniform vec4 u_color_id_rw;
+void fragment(void) {			
+	gl_FragColor=u_color_id_rw/255.0;
+}
+
+/*chunk-render-shadow-map*/
+
 <?=chunk('precision')?>
 
 uniform sampler2D u_texture_rw;
@@ -9,7 +37,8 @@ void fragment(void) {
 	gl_FragColor=vec4(1.0);	
 }
 
-/*chunk-receiver*/
+
+/*chunk-receive-shadow*/
 uniform mat4 u_light_camera_matrix_rw;
 varying vec4 v_shadow_light_vertex_rw;
 

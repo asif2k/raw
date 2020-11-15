@@ -6,6 +6,7 @@ raw.ecs = raw.define(function (proto) {
     this.components = {};
     this._systems = [];
     this.entities = {};
+    this.globals = {};
     this.memory_blocks = {};
     this.def_components = def.components || [];
     this.def_components.for_each(function (name_id, i, ecs) {

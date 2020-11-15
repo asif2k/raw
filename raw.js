@@ -3018,6 +3018,7 @@ raw.ecs = raw.define(function (proto) {
     this.components = {};
     this._systems = [];
     this.entities = {};
+    this.globals = {};
     this.memory_blocks = {};
     this.def_components = def.components || [];
     this.def_components.for_each(function (name_id, i, ecs) {
@@ -3875,14 +3876,7 @@ gl_FragColor=vec4(v_box_color_rw,1.0);
 }
 
 
-/*chunk-pickable-mesh*/
 
-<?=chunk('precision')?>
-
-uniform vec4 u_color_id_rw;
-void fragment(void) {
-gl_FragColor=u_color_id_rw/255.0;
-}
 
 
 /*chunk-quat-dquat*/
@@ -5087,15 +5081,1179 @@ raw.rendering.renderable = raw.define(function (proto, _super) {
   return renderable;
 });
 
-/*src/transform.js*/
+/*src/shading.js*/
 
-raw.transform = {};
+(function () {
+
+  var glsl = raw.webgl.shader.create_chunks_lib(`/*chunk-flat-material*/
+
+<?=chunk('precision')?>
+
+attribute vec3 a_position_rw;
+attribute vec2 a_uv_rw;
+attribute vec4 a_color_rw;
+uniform mat4 u_view_projection_rw;
+uniform mat3 u_texture_matrix_rw;
+uniform mat4 u_model_rw;
+varying vec2 v_uv_rw;
+varying vec4 v_color_rw;
+varying vec4 v_position_rw;
+vec4 att_position(void);
+vec3 att_uv(void);
+
+vec4 att_position(void){
+  return vec4(a_position_rw,1.0);
+}
+vec3 att_uv(void){
+  return vec3(a_uv_rw,1.0);
+}
+
+void vertex(void){
+  v_position_rw=u_model_rw*att_position();
+  gl_Position=u_view_projection_rw*v_position_rw;
+  v_uv_rw=(u_texture_matrix_rw*att_uv()).xy;
+  v_color_rw=a_color_rw;
+  gl_PointSize =10.0;
+}
+<?=chunk('precision')?>
+
+varying vec2 v_uv_rw;
+varying vec4 v_position_rw;
+varying vec4 v_color_rw;
+uniform mat4 u_object_material_rw;
+uniform sampler2D u_texture_rw;
+void fragment(void) {
+
+  gl_FragColor = texture2D(u_texture_rw, v_uv_rw)*v_color_rw ;
+  gl_FragColor.rgb*=u_object_material_rw[0].rgb;  
+gl_FragColor.w*=u_object_material_rw[0].w;
+  
+  
+
+}
+
+
+/*chunk-shaded-material*/
+
+<?=chunk('precision')?>
+attribute vec3 a_position_rw;
+attribute vec3 a_normal_rw;
+attribute vec2 a_uv_rw;
+attribute vec4 a_color_rw;
+uniform mat4 u_view_projection_rw;
+uniform mat4 u_model_rw;
+uniform mat3 u_texture_matrix_rw;
+
+varying vec2 v_uv_rw;
+varying vec4 v_position_rw;
+varying vec3 v_normal_rw;
+varying vec4 v_color_rw;
+
+vec4 att_position(void);
+vec4 att_normal(void);
+vec3 att_uv(void);
+
+vec4 att_position(void){
+  return vec4(a_position_rw,1.0);
+}
+vec4 att_normal(void){
+  return vec4(a_normal_rw,0.0);
+}
+
+vec3 att_uv(void){
+  return vec3(a_uv_rw,1.0);
+}
+
+void vertex(){
+v_position_rw=u_model_rw*att_position();
+  gl_Position=u_view_projection_rw*v_position_rw;
+v_normal_rw=(u_model_rw*att_normal()).xyz;
+v_uv_rw=(u_texture_matrix_rw*att_uv()).xy;
+ v_color_rw=a_color_rw;
+}
+
+<?=chunk('precision')?>
+
+<?=chunk('fws-lighting')?>
+
+varying vec2 v_uv_rw;
+varying vec4 v_position_rw;
+varying vec3 v_normal_rw;
+varying vec4 v_color_rw;
+
+uniform mat4 u_object_material_rw;
+uniform sampler2D u_texture_rw;
+uniform vec4 u_eye_position_rw;
+
+void fragment(void) {
+vec3 fws_direction_to_eye = normalize(u_eye_position_rw.xyz - v_position_rw.xyz);
+
+fws_total_light=fws_lighting_calc(u_object_material_rw,v_position_rw.xyz,
+normalize(v_normal_rw),fws_direction_to_eye);
+
+gl_FragColor = vec4(fws_total_light, u_object_material_rw[0].w)* 
+texture2D(u_texture_rw, v_uv_rw)* v_color_rw;
+gl_FragColor.w*=u_object_material_rw[0].w;
+
+
+
+
+
+
+
+}`);
+
+  raw.shading.material = raw.define(function (proto, _super) {
+    function material(parameters) {
+      _super.apply(this, arguments);
+      parameters = parameters || {};
+      this.uuid = raw.guidi();
+
+      this.object_material = new Float32Array(16);
+      this.ambient = new Float32Array(this.object_material.buffer, 0, 4);
+      this.diffuse = new Float32Array(this.object_material.buffer, 4 * 4, 4);
+      this.specular = new Float32Array(this.object_material.buffer, 8 * 4, 4);
+
+      this.texture = parameters.texture || null;
+
+      raw.math.vec3.copy(this.ambient, parameters.ambient || [0.5, 0.5, 0.5]);
+      raw.math.vec3.copy(this.diffuse, parameters.diffuse || [0.5, 0.5, 0.5]);
+      raw.math.vec3.copy(this.specular, parameters.specular || [0.863, 0.863, 0.863]);
+
+      this.ambient[3] = 1;
+
+      this.texture_matrix = raw.math.mat3();
+
+      this.instances_count = -1;
+      this.wireframe = parameters.wireframe || false;
+      this.set_flag(2);
+      if (parameters.flags) this.set_flag(parameters.flags);
+      this.shader = raw.shading.material.shader;
+      this.draw_type = 4;
+      if (parameters.draw_type !== undefined) {
+        this.draw_type = parameters.draw_type;
+      }
+
+      this.on_before_render = new raw.event(this);
+      this.on_after_render = new raw.event(this);
+      this.draw_elements = false;
+
+      if (parameters.transparent !== undefined) {
+        this.set_tansparency(parameters.transparent);
+      }
+
+    }
+
+    material.shader = raw.webgl.shader.parse(glsl["flat-material"]);
+
+
+    proto.set_tansparency = function (v) {
+      this.ambient[3] = Math.min(v, 1);
+      if (v < 1) this.set_flag(128);
+      else this.unset_flag(128);
+      return (this);
+    };
+    proto.set_shinness = function (shin) {
+      this.specular[3] = shin;
+      return (this);
+    };
+
+
+    proto.render_mesh = (function () {
+      var eparams = [null, null, null]
+
+      proto.complete_render_mesh = function (renderer, shader, mesh) {
+        if (this.instances_count > -1) {
+          if (this.instances_count > 0) {
+            if (this.draw_elements) {
+              renderer.gl.ANGLE_instanced_arrays.drawElementsInstancedANGLE(this.final_draw_type, this.final_draw_count, 5125, mesh.draw_offset, this.instances_count);
+            }
+            else {
+              renderer.gl.ANGLE_instanced_arrays.drawArraysInstancedANGLE(this.final_draw_type, mesh.draw_offset, this.final_draw_count, this.instances_count);
+            }
+          }
+        }
+        else {
+          if (this.draw_elements) {
+            renderer.gl.drawElements(this.final_draw_type, this.final_draw_count, 5125, mesh.draw_offset);
+          }
+          else {
+
+            renderer.gl.drawArrays(this.final_draw_type, mesh.draw_offset, this.final_draw_count);
+          }
+        }
+      };
+      return function (renderer, shader, mesh) {
+
+        eparams[0] = renderer;
+        eparams[1] = shader;
+        eparams[2] = mesh;
+
+        if (renderer.on_error) {
+          return;
+        }
+        if (this.flags & 1024) {
+          renderer.gl.disable(2929);
+        }
+        else {
+          renderer.gl.enable(2929);
+        }
+
+
+        if ((this.flags & 2048) !== 0) {
+          renderer.gl.disable(2884);
+        }
+        else {
+          renderer.gl.enable(2884);
+        }
+
+
+        shader.set_uniform("u_object_material_rw", this.object_material)
+        shader.set_uniform("u_texture_matrix_rw", this.texture_matrix);
+        shader.set_uniform("u_texture_rw", 0);
+        renderer.use_texture(this.texture, 0);
+
+
+
+        this.final_draw_type = this.wireframe ? 1 : this.draw_type;
+        this.final_draw_count = mesh.draw_count;
+
+
+        this.draw_elements = renderer.activate_geometry_index_buffer(mesh.geometry, this.wireframe);
+
+        if (this.wireframe) this.final_draw_count *= 2;
+
+        this.on_before_render.trigger(eparams);
+
+        this.complete_render_mesh(renderer, shader, mesh);
+
+        this.on_after_render.trigger(eparams);
+
+
+
+
+      }
+    })();
+
+    return material;
+  }, raw.flags_setting);
+
+
+  raw.shading.shaded_material = raw.define(function (proto, _super) {
+
+    function shaded_material(def) {
+      def = def || {};
+      _super.apply(this, [def]);
+      this.shader = raw.shading.shaded_material.shader;
+      this.flags = 4;
+      this.light_pass_limit = 1000;
+      this.lights_count = -1;
+      this.set_shinness(def.shinness || 100);
+      if (def.transparent !== undefined) {
+        this.set_tansparency(def.transparent);
+      }
+      if (def.cast_shadows) {
+        this.flags += 8
+      };
+
+      if (def.receive_shadows) {
+        this.flags += 16
+      };
+
+      return (this);
+
+    }
+
+    shaded_material.shader = raw.webgl.shader.parse(glsl["shaded-material"]);
+
+
+    return shaded_material;
+  }, raw.shading.material);
+
+})();
+
+
+(function () {
+  raw.shading.light = raw.define(function (proto, _super) {
+
+    proto.update_bounds = function (mat, trans) {
+      if (this.light_type > -1) {
+        r = this.range * 0.25;
+        p = this.world_position;
+
+        this.bounds[0] = p[0];
+        this.bounds[1] = p[1];
+        this.bounds[2] = p[2];
+        this.bounds[3] = p[0];
+        this.bounds[4] = p[1];
+        this.bounds[5] = p[2];
+
+        minx = p[0] - r;
+        miny = p[1] - r;
+        minz = p[2] - r;
+
+        maxx = p[0] + r;
+        maxy = p[1] + r;
+        maxz = p[2] + r;
+
+
+        this.expand_bounds(minx, miny, minz);
+        this.expand_bounds(minx, miny, maxz);
+        this.expand_bounds(minx, maxy, minz);
+        this.expand_bounds(minx, maxy, maxz);
+
+        this.expand_bounds(maxx, miny, minz);
+        this.expand_bounds(maxx, miny, maxz);
+        this.expand_bounds(maxx, maxy, minz);
+        this.expand_bounds(maxx, maxy, maxz);
+
+      }
+    };
+    proto.set_intensity = function (v) {
+      this.ambient[3] = v;
+      return (this);
+    };
+
+    function light(def) {
+      def = def || {};
+      _super.apply(this, [def]);
+      this.light_material = new Float32Array(16);
+      this.ambient = new Float32Array(this.light_material.buffer, 0, 4);
+      this.diffuse = new Float32Array(this.light_material.buffer, 4 * 4, 4);
+      this.specular = new Float32Array(this.light_material.buffer, 8 * 4, 4);
+      this.attenuation = new Float32Array(this.light_material.buffer, 12 * 4, 4);
+
+      this.diffuse[3] = -1;
+      this.specular[3] = -1;
+      this.range = 20000;
+      this.light_type = 0;
+      this.item_type = 4;
+
+
+      raw.math.vec4.copy(this.ambient, def.ambient || [0.59, 0.59, 0.59, 1.0]);
+      raw.math.vec4.copy(this.diffuse, def.diffuse || [0.87, 0.87, 0.87, -1]);
+      raw.math.vec4.copy(this.specular, def.specular || [0.85, 0.85, 0.85, -1]);
+      raw.math.vec4.copy(this.attenuation, def.attenuation || [0, 0, 0, 0]);
+
+      this.cast_shadows = def.cast_shadows || false;
+      this.shadow_bias = def.shadow_bias || 0.00000001;
+      this.shadow_opacity = def.shadow_opacity || 0.5;
+      this.shadow_map_size = def.shadow_map_size || 1024;
+      this.shadow_camera_distance = def.shadow_camera_distance || 30;
+
+
+    }
+
+    return light;
+  }, raw.rendering.renderable);
+
+})();
+
+
+
+(function () {
+
+  var glsl = raw.webgl.shader.create_chunks_lib(`/*chunk-default*/
+
+<?=chunk('precision')?>
+attribute vec3 a_position_rw;
+const vec2 madd=vec2(0.5,0.5);
+varying vec2 v_uv_rw;
+void vertex()
+{
+  gl_Position = vec4(a_position_rw.xy,0.0,1.0);
+v_uv_rw = a_position_rw.xy*madd+madd; 
+}
+<?=chunk('precision')?>
+uniform sampler2D u_texture_input_rw;
+varying vec2 v_uv_rw;
+void fragment(void){
+gl_FragColor = texture2D(u_texture_input_rw, v_uv_rw) ;
+
+
+}
+
+
+
+/*chunk-picture-adjustment*/
+
+uniform mat3 u_pa_params;
+
+void fragment(){
+vec4 c = texture2D(u_texture_input_rw, v_uv_rw);
+  if (c.a > 0.0) {
+
+
+  }
+    float gamma=u_pa_params[0].x;
+float contrast=u_pa_params[0].y;
+float saturation=u_pa_params[0].z;
+float brightness=u_pa_params[1].x;
+float red=u_pa_params[1].y;
+float green=u_pa_params[1].z;
+float blue=u_pa_params[2].x;
+
+    //c.rgb /= c.a;
+
+    vec3 rgb = pow(c.rgb, vec3(1.0 / gamma));
+    rgb = mix(vec3(0.5), mix(vec3(dot(vec3(0.2125, 0.7154, 0.0721), rgb)), rgb, saturation), contrast);
+    rgb.r *= red;
+    rgb.g *= green;
+    rgb.b *= blue;
+
+    c.rgb = rgb * brightness;    
+   //  c.rgb *= c.a;
+
+
+float alpha=u_pa_params[2].y;
+  if(v_uv_rw.x>0.5)
+    gl_FragColor = c * alpha;
+  else 
+    gl_FragColor =texture2D(u_texture_input_rw, v_uv_rw);
+}
+
+
+/*chunk-fxaa*/
+
+uniform vec3 u_inverse_filter_texture_size;
+uniform vec3 u_fxaa_params;
+
+void fragment(void){
+float R_fxaaSpanMax=u_fxaa_params.x;
+float R_fxaaReduceMin=u_fxaa_params.y;
+float R_fxaaReduceMul=u_fxaa_params.z;
+vec2 texCoordOffset = u_inverse_filter_texture_size.xy;
+vec3 luma = vec3(0.299, 0.587, 0.114);
+float lumaTL = dot(luma, texture2D(u_texture_input_rw, v_uv_rw.xy + (vec2(-1.0, -1.0) * texCoordOffset)).xyz);
+float lumaTR = dot(luma, texture2D(u_texture_input_rw, v_uv_rw.xy + (vec2(1.0, -1.0) * texCoordOffset)).xyz);
+float lumaBL = dot(luma, texture2D(u_texture_input_rw, v_uv_rw.xy + (vec2(-1.0, 1.0) * texCoordOffset)).xyz);
+float lumaBR = dot(luma, texture2D(u_texture_input_rw, v_uv_rw.xy + (vec2(1.0, 1.0) * texCoordOffset)).xyz);
+float lumaM = dot(luma, texture2D(u_texture_input_rw, v_uv_rw.xy).xyz);
+
+vec2 dir;
+dir.x = -((lumaTL + lumaTR) - (lumaBL + lumaBR));
+dir.y = ((lumaTL + lumaBL) - (lumaTR + lumaBR));
+
+float dirReduce = max((lumaTL + lumaTR + lumaBL + lumaBR) * (R_fxaaReduceMul * 0.25), R_fxaaReduceMin);
+float inverseDirAdjustment = 1.0/(min(abs(dir.x), abs(dir.y)) + dirReduce);
+
+dir = min(vec2(R_fxaaSpanMax, R_fxaaSpanMax), 
+max(vec2(-R_fxaaSpanMax, -R_fxaaSpanMax), dir * inverseDirAdjustment)) * texCoordOffset;
+
+vec3 result1 = (1.0/2.0) * (
+texture2D(u_texture_input_rw, v_uv_rw.xy + (dir * vec2(1.0/3.0 - 0.5))).xyz +
+texture2D(u_texture_input_rw, v_uv_rw.xy + (dir * vec2(2.0/3.0 - 0.5))).xyz);
+
+vec3 result2 = result1 * (1.0/2.0) + (1.0/4.0) * (
+texture2D(u_texture_input_rw, v_uv_rw.xy + (dir * vec2(0.0/3.0 - 0.5))).xyz +
+texture2D(u_texture_input_rw, v_uv_rw.xy + (dir * vec2(3.0/3.0 - 0.5))).xyz);
+
+float lumaMin = min(lumaM, min(min(lumaTL, lumaTR), min(lumaBL, lumaBR)));
+float lumaMax = max(lumaM, max(max(lumaTL, lumaTR), max(lumaBL, lumaBR)));
+float lumaResult2 = dot(luma, result2);
+
+
+if(lumaResult2 < lumaMin || lumaResult2 > lumaMax)
+gl_FragColor = vec4(result1, 1.0);
+else
+gl_FragColor = vec4(result2, 1.0);
+
+if(v_uv_rw.x<0.5){
+  gl_FragColor=texture2D(u_texture_input_rw, v_uv_rw);
+}
+else {
+
+gl_FragColor.rgb*=1.5;
+}
+
+`);
+
+  raw.shading.post_process = raw.define(function (proto) {
+
+    function post_process(shader) {
+      this.guid = raw.guidi();
+      this.shader = shader || raw.shading.post_process.shader;
+      if (!this.on_apply) {
+        this.on_apply = null;
+      }
+      this.enabled = true;
+    }
+
+    post_process.shader = raw.webgl.shader.parse(glsl["default"]);
+    proto.resize = function (width, height) { }
+    proto.bind_output = function (renderer, output) {
+      if (output === null) {
+        renderer.gl.bindFramebuffer(36160, null);
+        renderer.gl.viewport(0, 0, renderer.gl.canvas.width, renderer.gl.canvas.height);
+      }
+      else {
+        output.bind();
+      }
+    }
+
+    var on_apply_params = [null, null, null];
+    proto.apply = function (renderer, input, output) {
+      renderer.use_shader(this.shader);
+      this.bind_output(renderer, output);
+      if (this.on_apply !== null) {
+        on_apply_params[0] = renderer;
+        on_apply_params[1] = input;
+        on_apply_params[2] = output;
+        input = this.on_apply.apply(this, on_apply_params);
+
+      }
+      if (this.shader.set_uniform("u_texture_input_rw", 0)) {
+        renderer.use_direct_texture(input, 0);
+      }
+
+      renderer.draw_full_quad();
+    }
+
+    proto.on_apply = function (renderer, input, output) {
+      return input;
+    };
+
+    return post_process;
+  });
+
+  raw.shading.post_process.picture_adjustment = raw.define(function (proto, _super) {
+
+    function picture_adjustment(params) {
+      params = params || {};
+      _super.apply(this);
+      this.shader = raw.post_process.picture_adjustment.shader;
+      this.gamma = 1;
+      this.contrast = 1;
+      this.saturation = 1;
+      this.brightness = 3;
+      this.red = 1;
+      this.green = 1;
+      this.blue = 1;
+      this.alpha = 1;
+      raw.merge_object(params, this);
+
+    }
+
+
+    picture_adjustment.shader = raw.shading.post_process.shader.extend(glsl["picture-adjustment"]);
+
+    var u_pa_params = raw.math.mat3();
+    proto.on_apply = function (renderer, input, output) {
+      u_pa_params[0] = this.gamma;
+      u_pa_params[1] = this.contrast;
+      u_pa_params[2] = this.saturation;
+      u_pa_params[3] = this.brightness;
+      u_pa_params[4] = this.red;
+      u_pa_params[5] = this.green;
+      u_pa_params[6] = this.blue;
+      u_pa_params[7] = this.alpha;
+
+
+      this.shader.set_uniform("u_pa_params", u_pa_params);
+      return input;
+    };
+
+    return picture_adjustment;
+
+  }, raw.shading.post_process);
+
+
+  raw.shading.post_process.fxaa = raw.define(function (proto, _super) {
+
+
+    function fxaa(params) {
+      params = params || {};
+      _super.apply(this);
+      this.shader = raw.shading.post_process.fxaa.shader;
+      this.span_max = 16;
+      this.reduce_min = (1 / 256);
+      this.reduce_mul = (1 / 8);
+      this.enabled = false;
+      raw.merge_object(params, this);
+
+    }
+
+
+
+    fxaa.shader = raw.shading.post_process.shader.extend(glsl["fxaa"]);
+
+
+    var u_inverse_filter_texture_size = raw.math.vec3();
+    var u_fxaa_params = raw.math.vec3();
+
+    proto.on_apply = function (renderer, input, output) {
+      u_inverse_filter_texture_size[0] = 1 / input.width;
+      u_inverse_filter_texture_size[1] = 1 / input.height;
+      this.shader.set_uniform("u_inverse_filter_texture_size", u_inverse_filter_texture_size);
+
+      u_fxaa_params[0] = this.span_max;
+      u_fxaa_params[1] = this.reduce_min;
+      u_fxaa_params[2] = this.reduce_mul;
+
+      this.shader.set_uniform("u_fxaa_params", u_fxaa_params);
+
+      return input;
+    };
+
+    return fxaa;
+
+
+  }, raw.shading.post_process);
+})();
+
+
+
+/*src/rendering.js*/
+
+raw.rendering = raw.rendering || {};
+
+
+(function () {
+
+  var glsl = raw.webgl.shader.create_chunks_lib(`/*chunk-debug-points*/
+<?=chunk('precision')?>
+attribute vec3 a_point_position_rw;
+attribute vec4 a_point_color_rw;
+
+uniform mat4 u_view_projection_rw;
+uniform mat4 u_model_rw;
+
+varying vec3 point_color_v;
+
+void vertex(){  
+  gl_Position = u_view_projection_rw*u_model_rw* vec4(a_point_position_rw,1.0);
+  point_color_v=a_point_color_rw.xyz; 
+  gl_PointSize =a_point_color_rw.w;
+}
+<?=chunk('precision')?>
+
+varying vec3 point_color_v;
+void fragment(void) {    
+gl_FragColor.xyz=point_color_v;
+gl_FragColor.w=1.0;
+}
+
+
+
+/*chunk-debug-lines*/
+
+<?=chunk('precision')?>
+attribute vec3 a_line_position_rw;
+attribute vec3 a_line_color_rw;
+
+uniform mat4 u_view_projection_rw;
+uniform mat4 u_model_rw;
+
+varying vec3 line_color_v;
+
+void vertex(){  
+  gl_Position = u_view_projection_rw*u_model_rw* vec4(a_line_position_rw,1.0);
+  line_color_v=a_line_color_rw.xyz; 
+}
+<?=chunk('precision')?>
+
+varying vec3 line_color_v;
+void fragment(void) {    
+gl_FragColor.xyz=line_color_v;
+gl_FragColor.w=1.0;
+}
+
+
+/*chunk-debug-aabbs*/
+
+<?=chunk('precision')?>
+attribute vec3 a_position_rw;
+attribute vec3 a_box_position_rw;
+attribute vec3 a_box_size_rw;
+attribute vec3 a_box_color_rw;
+
+uniform mat4 u_view_projection_rw;
+uniform mat4 u_model_rw;
+varying vec3 v_box_color_rw;
+void vertex(){
+  vec4 pos;
+  pos.xyz=a_position_rw*a_box_size_rw;  
+  pos.xyz+=a_box_position_rw;
+  pos.w=1.0;  
+  v_box_color_rw=a_box_color_rw;
+  gl_Position = u_view_projection_rw*u_model_rw*pos;
+  gl_PointSize =5.0;
+
+}
+<?=chunk('precision')?>
+varying vec3 v_box_color_rw;
+void fragment(void) {
+gl_FragColor=vec4(v_box_color_rw,1.0);
+}
+
+
+/*chunk-transforms-manipulator*/
+
+<?=chunk('precision')?>
+attribute vec3 a_position_rw;
+uniform mat4 u_view_projection_rw;
+uniform vec3 u_trans_position;
+uniform float u_trans_size;
+void vertex(){  
+  gl_Position = u_view_projection_rw* 
+vec4(u_trans_position+(a_position_rw*u_trans_size),1.0);
+}
+<?=chunk('precision')?>
+uniform vec4 u_marker_color;
+void fragment(void) {    
+gl_FragColor=u_marker_color;
+}`);
+
+  raw.rendering.mesh = raw.define(function (proto, _super) {
+
+    function mesh(def) {
+      def = def || {};
+      _super.apply(this, [def]);
+
+      this.geometry = def.geometry || null;
+      this.material = def.material || null;
+      this.draw_offset = 0;
+      if (this.geometry !== null) this.draw_count = this.geometry.num_items;
+      this.item_type = 2;
+
+    }
+    proto.update_bounds = function (mat, trans) {
+      raw.math.aabb.transform_mat4(this.bounds, this.geometry.aabb, mat);
+      this.bounds_sphere = this.geometry.bounds_sphere * trans.scale_world[0];
+    };
+
+    return mesh;
+  }, raw.rendering.renderable);
+
+
+
+
+
+  raw.rendering.debug_points = raw.define(function (proto, _super) {
+    var mat = new raw.shading.material();
+
+    mat.shader = raw.webgl.shader.parse(glsl["debug-points"] );
+
+    mat.render_mesh = function (renderer, shader, mesh) {
+      if (mesh.points_count < 1) return;
+
+      renderer.gl.drawArrays(0, 0, mesh.points_count);
+    };
+
+
+    proto.clear = function () {
+      this.points_position.i = 0;
+      this.points_count = 0;
+    };
+
+
+    proto.add = (function () {
+      var i = 0, _r = 1, _g = 1, _b = 1, _s = 10;
+      proto.add_vec3 = function (v, r, g, b, s) {
+        _r = r; _g = g; _b = b; _s = s;
+        this.add(v[0], v[1], v[2], _r, _g, _b, _s);
+      };
+
+      return function (x, y, z, r, g, b, s) {
+        _r = r; _g = g; _b = b; _s = s;
+        i = this.points_position.i;
+        this.points_position.data[i] = x;
+        this.points_position.data[i + 1] = y;
+        this.points_position.data[i + 2] = z;
+
+        this.points_position.data[i + 3] = r;
+        this.points_position.data[i + 4] = g;
+        this.points_position.data[i + 5] = b;
+        this.points_position.data[i + 6] = s;
+
+        this.points_position.i += 7;
+
+        this.points_position.data_length = this.points_position.i;
+        this.points_position.needs_update = true;
+
+        this.points_count = (this.points_position.i / 7);
+        this.draw_count = this.points_count;
+      }
+    })();
+
+
+    proto.update_bounds = function (mat) { };
+
+    function debug_points(def) {
+      def = def || {};
+      _super.apply(this, [def]);
+
+
+      def.max_points = def.max_points || 1000;
+
+      this.geometry = new raw.geometry();
+
+      this.points_position = this.geometry.add_attribute("a_point_position_rw", {
+        item_size: 3, data: new Float32Array(def.max_points * 3), stride: 7 * 4
+      });
+      this.points_color = this.geometry.add_attribute("a_point_color_rw", {
+        item_size: 4, stride: 7 * 4, offset: 3 * 4,
+      });
+      this.points_position.i = 0;
+      this.points_count = 0;
+      this.material = mat;
+      this.draw_offset = 0;
+      this.draw_count = this.geometry.num_items;
+
+      this.flags = 1024 + 1;
+
+    }
+
+    return debug_points;
+  }, raw.rendering.mesh);
+
+
+
+
+
+  raw.rendering.debug_lines = raw.define(function (proto, _super) {
+    var mat = new raw.shading.material();
+
+    mat.shader = raw.webgl.shader.parse(glsl["debug-lines"] );
+
+    mat.render_mesh = function (renderer, shader, mesh) {
+      if (mesh.line_count < 1) return;
+      renderer.gl.drawArrays(1, 0, mesh.line_count);
+    };
+
+
+    proto.clear = function () {
+      this.line_position.i = 0;
+      this.line_count = 0;
+    };
+
+
+    proto._add = (function () {
+      var i = 0;
+
+      proto.set_color = function (r, g, b) {
+        this.color[0] = r;
+        this.color[1] = g;
+        this.color[2] = b;
+        return this;
+      }
+
+      proto.add_vec3 = function (v0, v1) {
+        this._add(
+          v0[0], v0[1], v0[2], this.color[0], this.color[1], this.color[2],
+          v1[0], v1[1], v1[2], this.color[0], this.color[1], this.color[2]
+        );
+        return this;
+      };
+
+      proto.add2 = function (x0, y0, z0, x1, y1, z1) {
+        this._add(
+          x0, y0, z0, this.color[0], this.color[1], this.color[2],
+          x1, y1, z1, this.color[0], this.color[1], this.color[2]
+        )
+      };
+
+      return function (x0, y0, z0, r0, g0, b0, x1, y1, z1, r1, g1, b1) {
+        i = this.line_position.i;
+        this.line_position.data[i] = x0;
+        this.line_position.data[i + 1] = y0;
+        this.line_position.data[i + 2] = z0;
+
+        this.line_position.data[i + 3] = r0;
+        this.line_position.data[i + 4] = g0;
+        this.line_position.data[i + 5] = b0;
+
+        this.line_position.data[i + 6] = x1;
+        this.line_position.data[i + 7] = y1;
+        this.line_position.data[i + 8] = z1;
+
+        this.line_position.data[i + 9] = r1;
+        this.line_position.data[i + 10] = g1;
+        this.line_position.data[i + 11] = b1;
+
+        this.line_position.i += 12;
+
+        this.line_position.data_length = this.line_position.i;
+        this.line_position.needs_update = true;
+
+        this.line_count = (this.line_position.i / 6);
+        this.draw_count = this.line_count;
+      }
+    })();
+
+
+    proto.update_bounds = function (mat) { };
+
+    function debug_lines(def) {
+      def = def || {};
+      _super.apply(this, [def]);
+
+
+      def.max_lines = def.max_lines || 1000;
+
+      this.geometry = new raw.geometry();
+
+      this.line_position = this.geometry.add_attribute("a_line_position_rw", {
+        item_size: 3, data: new Float32Array(def.max_lines * 3 * 2), stride: 6 * 4
+      });
+      this.line_color = this.geometry.add_attribute("a_line_color_rw", {
+        item_size: 3, stride: 6 * 4, offset: 3 * 4,
+      });
+      this.line_position.i = 0;
+      this.line_count = 0;
+      this.material = mat;
+      this.draw_offset = 0;
+      this.draw_count = this.geometry.num_items;
+      this.color = [1, 1, 1];
+      this.flags = 1;
+
+    }
+
+    return debug_lines;
+  }, raw.rendering.mesh);
+
+
+
+
+
+  raw.rendering.debug_aabbs = raw.define(function (proto, _super) {
+    var mat = new raw.shading.material();
+
+    mat.shader = raw.webgl.shader.parse(glsl["debug-aabbs"]);
+
+    mat.render_mesh = function (renderer, shader, mesh) {
+      if (mesh.boxes_count < 1) return;
+      renderer.gl.disable(2929);
+      renderer.gl.ANGLE_instanced_arrays.drawArraysInstancedANGLE(1, 0, mesh.geometry.num_items, mesh.boxes_count);
+
+    };
+
+
+    proto.update_bounds = function (mat) { };
+
+    proto.clear = function () {
+      this.di = 0;
+      this.boxes_count = 0;
+    };
+
+
+    proto.add_aabb = (function () {
+      var x, y, z, sx, sy, sz
+      return function (b) {
+        sx = b[3] - b[0];
+        sy = b[4] - b[1];
+        sz = b[5] - b[2];
+        x = b[0] + sx * 0.5;
+        y = b[1] + sy * 0.5;
+        z = b[2] + sz * 0.5;
+
+        this.add(x, y, z, sx, sy, sz);
+      }
+    })();
+    proto.add = (function () {
+      var i = 0;
+      return function (x, y, z, sx, sy, sz) {
+        i = this.di;
+        this.boxes_position.data[i] = x;
+        this.boxes_position.data[i + 1] = y;
+        this.boxes_position.data[i + 2] = z;
+
+        this.boxes_size.data[i] = sx;
+        this.boxes_size.data[i + 1] = sy;
+        this.boxes_size.data[i + 2] = sz;
+
+        this.boxes_color.data[i] = 1;
+        this.boxes_color.data[i + 1] = 0;
+        this.boxes_color.data[i + 2] = 0;
+
+        this.di += 3;
+
+        this.boxes_position.data_length = this.di;
+        this.boxes_position.needs_update = true;
+
+        this.boxes_size.data_length = this.di;
+        this.boxes_size.needs_update = true;
+
+        this.boxes_color.data_length = this.di;
+        this.boxes_color.needs_update = true;
+        this.boxes_count = this.di / 3;
+      }
+    })();
+
+    function debug_aabbs(def) {
+      def = def || {};
+      _super.apply(this, [def]);
+      def.max_boxes = def.max_boxes || 1000;
+      var geo = raw.rendering.debug_aabbs.get_lines_geometry();
+
+      this.boxes_position = geo.add_attribute("a_box_position_rw", {
+        item_size: 3, data: new Float32Array(def.max_boxes * 3), divisor: 1,
+      });
+      this.boxes_size = geo.add_attribute("a_box_size_rw", {
+        item_size: 3, data: new Float32Array(def.max_boxes * 3), divisor: 1,
+      });
+
+      this.boxes_color = geo.add_attribute("a_box_color_rw", {
+        item_size: 3, data: new Float32Array(def.max_boxes * 3), divisor: 1,
+      });
+
+      this.geometry = geo;
+      this.material = mat;
+
+      this.max_boxes = 0;
+      this.di = 0;
+      this.box_color = [0.5, 0.5, 0.5];
+
+      this.flags = 1024 + 1;
+      return (this);
+
+
+    }
+    debug_aabbs.get_lines_geometry = function () {
+      var b = raw.geometry.lines_builder;
+      b.clear();
+      b.move_to(-0.5, -0.5, -0.5)
+        .add_to(0.5, -0.5, -0.5)
+        .add_to(0.5, 0.5, -0.5)
+        .add_to(-0.5, 0.5, -0.5)
+        .add_to(-0.5, -0.5, -0.5);
+
+      b.move_to(-0.5, -0.5, -0.5).add_to(-0.5, -0.5, 0.5);
+      b.move_to(0.5, -0.5, -0.5).add_to(0.5, -0.5, 0.5);
+
+      b.move_to(-0.5, 0.5, -0.5).add_to(-0.5, 0.5, 0.5);
+      b.move_to(0.5, 0.5, -0.5).add_to(0.5, 0.5, 0.5);
+
+      b.move_to(-0.5, -0.5, 0.5)
+        .add_to(0.5, -0.5, 0.5)
+        .add_to(0.5, 0.5, 0.5)
+        .add_to(-0.5, 0.5, 0.5)
+        .add_to(-0.5, -0.5, 0.5);
+
+      return b.build();
+    }
+
+
+    return debug_aabbs;
+  }, raw.rendering.mesh);
+
+
+
+
+
+  raw.rendering.transforms_manipulator = raw.define(function (proto, _super) {
+    var mat = new raw.shading.material();
+
+    mat.set_flag(8192 + 128);
+    // + 128
+
+    mat.shader = raw.webgl.shader.parse(glsl["transforms-manipulator"]);
+
+    // mat.shader.pickable = mat.shader;
+
+    var geo = raw.geometry.sphere({ rad: 1 });
+    var i = 0, trans = null;
+    var u_marker_color = raw.math.vec4(1, 0, 0, 0.45);
+    mat.render_mesh = function (renderer, shader, mesh) {
+
+      if (renderer.pickables_pass) {
+
+      }
+      // renderer.gl.enable(2884);
+      renderer.gl.disable(2929);
+      renderer.activate_geometry_index_buffer(mesh.geometry, false);
+      for (i = 0; i < mesh.transforms.length; i++) {
+        trans = mesh.transforms[i];
+        if (trans[2] === -1) {
+          trans[2] = renderer.create_picking_color_id();
+        }
+        if (!renderer.pickables_pass && !trans[3]) {
+          continue;
+        }
+
+
+        renderer.set_picking_color_id(trans[2]);
+        if (mesh.active_picking_color_id === trans[2]) {
+          u_marker_color[1] = 0.5;
+        }
+        else {
+          u_marker_color[1] = 0;
+        }
+
+        shader.set_uniform("u_marker_color", u_marker_color);
+
+        shader.set_uniform("u_trans_position", trans[0].position_world);
+        shader.set_uniform("u_trans_size", trans[1]);
+        renderer.gl.drawElements(4, geo.num_items, 5125, 0);
+      }
+
+      renderer.gl.enable(2929);
+      //mesh.active_picking_color_id = 0;
+
+    };
+
+    proto.update_bounds = function (mat) { };
+    proto.add = function (trans, size, show_tracker) {
+      show_tracker = show_tracker || false
+      if (trans.position_world) {
+        this.transforms.push([trans, size, -1, show_tracker]);
+      }
+      else {
+        this.transforms.push([{ position_world: trans }, size, -1, show_tracker]);
+      }
+
+    }
+
+
+    var pos = [0, 0, 0], inv_rot = [0, 0, 0, 0];
+    proto.drag_item = function (picking_color_id, drag_dir, drag_mag) {
+      this.active_picking_color_id = 0;
+      this.active_item = null;
+      for (i = 0; i < this.transforms.length; i++) {
+        trans = this.transforms[i];
+        if (trans[2] === picking_color_id) {
+          this.active_picking_color_id = picking_color_id;
+          raw.math.vec3.scale(pos, drag_dir, drag_mag);
+          if (trans[0].rotation_world) {
+            raw.math.quat.invert(inv_rot, trans[0].rotation_world);
+            raw.math.vec3.transform_quat(pos, pos, inv_rot);
+            raw.math.vec3.add(trans[0].position, trans[0].position, pos);
+            trans[0].require_update = 1;
+          }
+          else {
+            raw.math.vec3.add(trans[0].position_world, trans[0].position_world, pos);
+          }
+
+          this.active_item = trans[0];
+          return true;
+        }
+      }
+      return false;
+    }
+
+    function transforms_manipulator(def) {
+      def = def || {};
+      _super.apply(this, [def]);
+      this.flags = 1;
+      this.geometry = geo;
+      this.material = mat;
+      this.transforms = [];
+      this.active_item = null;
+    }
+
+    return transforms_manipulator;
+  }, raw.rendering.mesh);
+})();
+
+
+/*src/systems/transform_system.js*/
+
 
 raw.ecs.register_component("transform", raw.define(function (proto, _super) {
 
   proto.create = (function (_super_call) {
-    return function (def,entity) {
-      _super_call.apply(this, [def, entity]);      
+    return function (def, entity) {
+      _super_call.apply(this, [def, entity]);
       if (def.position) {
         raw.math.vec3.set(this.position, def.position[0], def.position[1], def.position[2]);
       }
@@ -5114,7 +6272,7 @@ raw.ecs.register_component("transform", raw.define(function (proto, _super) {
       else {
         raw.math.quat.set(this.rotation, 0, 0, 0, 1);
       }
-      this.require_update = 1;     
+      this.require_update = 1;
       this.parent = null;
       this.flags = 0;
       this.version = 0;
@@ -5135,7 +6293,7 @@ raw.ecs.register_component("transform", raw.define(function (proto, _super) {
   var trans_id = 0;
 
   function transform(component) {
-    _super.apply(this, [component]);    
+    _super.apply(this, [component]);
     raw.assign(this, {
       position: component.mem.vec3(),
       scale: component.mem.vec3(),
@@ -5182,15 +6340,51 @@ raw.ecs.register_component("transform", raw.define(function (proto, _super) {
       }
 
 
+      var max_transforms = component.ecs.globals['MAX_TRANSFORMS'] || 1024;
 
-
-      component.mem = component.ecs.create_memory_block('transform', (1024 * 4) * 30);
+      component.mem = component.ecs.create_memory_block('transform', (
+        (component.ecs.globals['MAX_TRANSFORMS'] || 1024) * 4) * 30);
     }
-    
+
   };
-  
+
 
   return transform;
+
+}, raw.ecs.component));
+
+raw.ecs.register_component("transform_controller", raw.define(function (proto, _super) {
+
+  proto.create = (function (_super_call) {
+    return function (def, entity) {
+      _super_call.apply(this, [def, entity]);
+      if (def.rotate) {
+        raw.math.vec3.copy(this.rotate, def.rotate);
+      }
+      this.transform = entity.transform;
+      this.rotate_eular(this.rotate[0], this.rotate[1], this.rotate[2]);
+
+    }
+  })(proto.create);
+
+
+  proto.rotate_eular = function (x, y, z) {
+    raw.math.quat.rotate_eular(this.transform.rotation, x, y, z);
+    this.transform.require_update = 1;
+  };
+  proto.yaw_pitch = function (dx, dy) {
+    this.rotate[0] += dx;
+    this.rotate[1] += dy;
+    this.rotate_eular(this.rotate[0], this.rotate[1], this.rotate[2]);
+  };
+
+
+  function transform_controller(component) {
+    _super.apply(this, [component]);
+    this.rotate = raw.math.vec3(0, 0, 0);
+  }
+
+  return transform_controller;
 
 }, raw.ecs.component));
 
@@ -5400,51 +6594,347 @@ raw.ecs.register_system("transform_system", raw.define(function (proto, _super) 
 
 }, raw.ecs.system));
 
+/*src/systems/camera_system.js*/
 
-raw.ecs.register_component("transform_controller", raw.define(function (proto, _super) {
+
+
+raw.ecs.register_component("camera", raw.define(function (proto, _super) {
 
   proto.create = (function (_super_call) {
     return function (def, entity) {
       _super_call.apply(this, [def, entity]);
-      if (def.rotate) {
-        raw.math.vec3.copy(this.rotate, def.rotate);
+
+      this.entity = entity;
+      this.update_view_projection = true;
+      this.type = def.type || "perspective";
+      if (this.type === "perspective") {
+        this.fov = (def.fov !== undefined ? def.fov : 50) * 0.017453292519943295;
+        this.near = def.near !== undefined ? near : 0.1;
+        this.far = def.far !== undefined ? def.far : 1000;
+        this.aspect = def.aspect !== undefined ? def.aspect : 1;
       }
-      this.transform = entity.transform;
-      this.rotate_eular(this.rotate[0], this.rotate[1], this.rotate[2]);
+      else {
+        this.left = def.left || -0.5;
+        this.right = def.right || 0.5;
+        this.bottom = def.bottom || -0.5;
+        this.top = def.top || 0.5;
+        this.near = def.near || 0.1;
+        this.far = def.far || 20;
+
+        this.aspect = Math.abs((this.right - this.left) / (this.top - this.bottom));
+      }
+      this.drag_direction = raw.math.vec3();
+      this.last_drag_direction = raw.math.vec3();
+      this.version = 0;
 
     }
   })(proto.create);
 
-
-  proto.rotate_eular = function (x, y, z) {
-    raw.math.quat.rotate_eular(this.transform.rotation, x, y, z);    
-    this.transform.require_update = 1;
+  proto.update_aspect = function (asp) {
+    this.aspect = asp;
+    this.update_view_projection = 1;
   };
+
+
   proto.yaw_pitch = function (dx, dy) {
     this.rotate[0] += dx;
     this.rotate[1] += dy;
-    this.rotate_eular(this.rotate[0], this.rotate[1], this.rotate[2]);    
+    raw.math.quat.rotate_eular(this.entity.transform.rotation, this.rotate[0], this.rotate[1], this.rotate[2]);
+    this.entity.transform.require_update = 1;
   };
 
+  proto.set_rotate = function (x, y, z) {
+    this.rotate[0] = x;
+    this.rotate[1] = y;
+    this.rotate[2] = z;
+    raw.math.quat.rotate_eular(this.entity.transform.rotation, this.rotate[0], this.rotate[1], this.rotate[2]);
+    this.entity.transform.require_update = 1;
+  };
 
-  function transform_controller(component) {
+  proto.set_position = function (x, y, z) {
+    this.entity.transform.position[0] = x;
+    this.entity.transform.position[1] = y;
+    this.entity.transform.position[2] = z;
+    this.entity.transform.require_update = 1;
+  };
+
+  proto.move_front_back = function (sp) {
+
+    this.entity.transform.position[0] += this.fw_vector[0] * sp;
+    this.entity.transform.position[1] += this.fw_vector[1] * sp;
+    this.entity.transform.position[2] += this.fw_vector[2] * sp;
+    this.entity.transform.require_update = 1;
+  };
+
+  proto.move_left_right = function (sp) {
+    this.entity.transform.position[0] += this.sd_vector[0] * sp;
+    this.entity.transform.position[1] += this.sd_vector[1] * sp;
+    this.entity.transform.position[2] += this.sd_vector[2] * sp;
+    this.entity.transform.require_update = 1;
+  };
+
+  proto.move_up_down = function (sp) {
+    this.entity.transform.position[0] += this.up_vector[0] * sp;
+    this.entity.transform.position[1] += this.up_vector[1] * sp;
+    this.entity.transform.position[2] += this.up_vector[2] * sp;
+    this.entity.transform.require_update = 1;
+  };
+  var len = 0;
+  proto.update_frustum_plane = function (p, x, y, z, w) {
+    len = x * x + y * y + z * z + w * w;
+    len = 1 / Math.sqrt(len);
+    this.frustum_plans[p][0] = x * len;
+    this.frustum_plans[p][1] = y * len;
+    this.frustum_plans[p][2] = z * len;
+    this.frustum_plans[p][3] = w * len;
+  };
+  proto.calc_bounds = (function () {
+    var minx, miny, minz, maxx, maxy, maxz;
+    function update_bounds(x, y, z) {
+      minx = Math.min(minx, x);
+      miny = Math.min(miny, y);
+      minz = Math.min(minz, z);
+
+      maxx = Math.max(maxx, x);
+      maxy = Math.max(maxy, y);
+      maxz = Math.max(maxz, z);
+
+
+    }
+    return function () {
+
+      var half_height = Math.tan((this.fov / 2.0));
+      var half_width = half_height * this.aspect;
+      var xn = half_width * this.near;
+      var xf = half_width * this.far;
+      var yn = half_width * this.near;
+      var yf = half_width * this.far;
+
+
+      minx = 99999;
+      miny = 99999;
+      minz = 99999;
+
+      maxx = -99999;
+      maxy = -99999;
+      maxz = -99999;
+
+
+
+      update_bounds(-xn, -yn, this.near);
+      update_bounds(xn, -yn, this.near);
+      update_bounds(xn, yn, this.near);
+      update_bounds(-xn, yn, this.near);
+
+
+      update_bounds(-xf, -yf, -this.far);
+      update_bounds(xf, -yf, -this.far);
+      update_bounds(xf, yf, -this.far);
+      update_bounds(-xf, yf, -this.far);
+
+
+
+      this._bounds[0] = minx;
+      this._bounds[1] = miny;
+      this._bounds[2] = minz;
+
+
+      this._bounds[3] = maxx;
+      this._bounds[4] = maxy;
+      this._bounds[5] = maxz;
+
+
+
+    }
+  })();
+  proto.update_frustum = function (me) {
+    raw.math.aabb.transform_mat4(this.bounds, this._bounds, this.view);
+    //RIGHT
+    this.update_frustum_plane(0, me[3] - me[0], me[7] - me[4], me[11] - me[8], me[15] - me[12]);
+    //LEFT
+    this.update_frustum_plane(1, me[3] + me[0], me[7] + me[4], me[11] + me[8], me[15] + me[12]);
+    //BOTTOM
+    this.update_frustum_plane(2, me[3] + me[1], me[7] + me[5], me[11] + me[9], me[15] + me[13]);
+    //TOP
+    this.update_frustum_plane(3, me[3] - me[1], me[7] - me[5], me[11] - me[9], me[15] - me[13]);
+    //FAR
+    this.update_frustum_plane(4, me[3] - me[2], me[7] - me[6], me[11] - me[10], me[15] - me[14]);
+    //NEAR
+    this.update_frustum_plane(5, me[3] + me[2], me[7] + me[6], me[11] + me[10], me[15] + me[14]);
+
+
+  };
+
+  proto.frustum_aabb = (function () {
+    var p = 0, dd = 0, plane;
+
+    proto._frustum_aabb = function (minx, miny, minz, maxx, maxy, maxz) {
+      for (p = 0; p < 6; p++) {
+        plane = this.frustum_plans[p];
+        dd = Math.max(minx * plane[0], maxx * plane[0])
+          + Math.max(miny * plane[1], maxy * plane[1])
+          + Math.max(minz * plane[2], maxz * plane[2])
+          + plane[3];
+
+        if (dd < 0) return false;
+      }
+      return true;
+    };
+
+    return function (aabb) {
+      return this._frustum_aabb(aabb[0], aabb[1], aabb[2], aabb[3], aabb[4], aabb[5]);
+    }
+
+  })();
+
+  proto.aabb_aabb = (function () {
+    var a;
+    return function (b) {
+      a = this.bounds;
+      return (a[0] <= b[3] && a[3] >= b[0]) &&
+        (a[1] <= b[4] && a[4] >= b[1]) &&
+        (a[2] <= b[5] && a[5] >= b[2]);
+    }
+
+  })();
+
+
+  proto.get_mouse_ray = (function () {
+    var v = raw.math.vec4(), start = raw.math.vec3(), end = raw.math.vec3();
+
+    proto.set_drag_direction = function (mouse_x, mouse_y, width, height) {
+      v[0] = (mouse_x / width) * 2 - 1;
+      v[1] = -(mouse_y / height) * 2 + 1;
+      v[2] = -1;
+      raw.math.vec3.transform_mat4(start, v, this.view_projection_inverse);
+      v[2] = 1;
+      raw.math.vec3.transform_mat4(v, v, this.view_projection_inverse);
+
+      raw.math.vec3.subtract(this.drag_direction, v, this.last_drag_direction);
+      raw.math.vec3.normalize(this.drag_direction, this.drag_direction);
+      raw.math.vec3.copy(this.last_drag_direction, v);
+      return this.drag_direction;
+
+    };
+
+    return function (mouse_ray, mouse_x, mouse_y, width, height) {
+      v[0] = (mouse_x / width) * 2 - 1;
+      v[1] = -(mouse_y / height) * 2 + 1;
+      v[2] = -1;
+
+      raw.math.vec3.transform_mat4(start, v, this.view_projection_inverse);
+      v[2] = 1;
+      raw.math.vec3.transform_mat4(mouse_ray, v, this.view_projection_inverse);
+      return mouse_ray;
+
+
+    }
+
+  })();
+
+
+
+  function camera(component) {
     _super.apply(this, [component]);
+
+    this.view = raw.math.mat4();
+    this.view_inverse = raw.math.mat4();
+    this.projection = raw.math.mat4();
+    this.projection_inverse = raw.math.mat4();
+    this.view_projection = raw.math.mat4();
+    this.view_projection_inverse = raw.math.mat4();
+
     this.rotate = raw.math.vec3(0, 0, 0);
+
+    this.version = 0;
+
+    this.up_vector = new Float32Array(this.view.buffer, (4 * 4), 3);
+    this.fw_vector = new Float32Array(this.view.buffer, (8 * 4), 3);
+    this.sd_vector = new Float32Array(this.view.buffer, 0, 3);
+
+    this.frustum_plans = [raw.math.vec4(), raw.math.vec4(), raw.math.vec4(), raw.math.vec4(), raw.math.vec4(), raw.math.vec4()];
+    this.world_position = new Float32Array(this.view.buffer, (12 * 4), 3);
+
+    this.bounds = raw.math.aabb();
+    this._bounds = raw.math.aabb();
+
   }
 
-  return transform_controller;
+  camera.validate = function (component) {
+    component.ecs.use_system('camera_system');
+  };
+
+  return camera;
 
 }, raw.ecs.component));
 
 
 
+raw.ecs.register_system("camera_system", raw.define(function (proto, _super) {
+  var quat = raw.math.quat, mat4 = raw.math.mat4;
+
+  var trans = null, cam = null, entity = null;
+  proto.step = function () {
+
+    while ((entity = this.ecs.iterate_entities("camera")) !== null) {
+      cam = entity.camera;
+      trans = entity.transform;
+      if (cam.update_view_projection === 1) {        
+        if (cam.type === "perspective") {
+          mat4.perspective(cam.projection, cam.fov, cam.aspect, cam.near, cam.far);
+        }
+        else {
+          mat4.ortho(cam.projection, cam.left, cam.right, cam.bottom, cam.top, cam.near, cam.far);
+        }     
+        mat4.inverse(cam.projection_inverse, cam.projection);
+      }
+
+      if (trans.require_update !== 0) {
+        cam.version+=0.000001;
+        quat.to_mat4(cam.view, trans.rotation_world);
+        mat4.scale(cam.view, trans.scale_world);
+        cam.view[12] = trans.position_world[0];
+        cam.view[13] = trans.position_world[1];
+        cam.view[14] = trans.position_world[2];
 
 
+        cam.update_view_projection = 1;
+      }
+
+      if (cam.update_view_projection === 1) {
+        cam.version += 0.000001;
+        cam.update_view_projection = 0;
+        mat4.inverse(cam.view_inverse, cam.view);
+        mat4.multiply(cam.view_projection, cam.projection, cam.view_inverse);
+
+        mat4.inverse(cam.view_projection_inverse, cam.view_projection);
+        cam.update_frustum(cam.view_projection);
+        if (cam.type === "perspective") {
+          cam.calc_bounds();
+        }
+      }
+    }
+
+
+  };
+  proto.validate = function (ecs) {
+    this.priority = ecs.use_system('transform_system').priority + 50;
+  };
+  return function camera_system(def, ecs) {
+    _super.apply(this, [def, ecs]);
+
+  }
+
+}, raw.ecs.system));
+
+
+
+/*src/systems/animation_system.js*/
 
 raw.ecs.register_system("animation_system", raw.define(function (proto, _super) {
-  
+
   var mixer = null, item = null;
-  
+
   proto.validate = function (ecs) {
     this.priority = ecs.use_system('transform_system').priority - 50;
   };
@@ -5456,11 +6946,11 @@ raw.ecs.register_system("animation_system", raw.define(function (proto, _super) 
     //this.step_size *= 2;
   }
 
-  proto.step = function () {    
+  proto.step = function () {
     item = this.mixers.head;
     while (item !== null) {
       mixer = item.data;
-      
+
       mixer.update(this.time_delta);
       item = item.next;
     }
@@ -5491,7 +6981,7 @@ raw.ecs.register_system("animation_system", raw.define(function (proto, _super) 
     }
   })();
   animation_system.compile_animation = (function () {
-     
+
     var oi = 0, vprop = null, tr = null, tar = null;
     return function (anim) {
       anim.targets = {};
@@ -5565,8 +7055,8 @@ raw.ecs.register_system("animation_system", raw.define(function (proto, _super) 
   })();
 
 
-  animation_system.run = (function () {    
-    var bi=0, fi = 0, f1 = 0, f2 = 0, j = 0, fr_size = 0, pi = 0, oi = 0;
+  animation_system.run = (function () {
+    var bi = 0, fi = 0, f1 = 0, f2 = 0, j = 0, fr_size = 0, pi = 0, oi = 0;
     var temp_quat1 = raw.math.quat(), temp_quat2 = raw.math.quat();
     var frames = null, output = null, btime = 0, time1 = 0, v1 = 0, v2 = 0, v3 = 0, v4 = 0;
 
@@ -5813,14 +7303,14 @@ raw.ecs.register_system("animation_system", raw.define(function (proto, _super) 
       this._targets = [];
       this.anim_targets = [];
     }
-   
+
     return mixer;
   });
 
 
   var inx = 0;
   proto.set_anim_targets = function (trans, anim_target) {
-    if (!anim_target) return;  
+    if (!anim_target) return;
     trans.flags = raw.set_flag(trans.flags, 4);
     trans.anim_target = anim_target;
 
@@ -5831,1703 +7321,1656 @@ raw.ecs.register_system("animation_system", raw.define(function (proto, _super) 
   return animation_system;
 }, raw.ecs.system));
 
-
-
-
-
-
-
-
-
-
-
-raw.ecs.register_component("camera", raw.define(function (proto, _super) {
- 
-  proto.create = (function (_super_call) {
-    return function (def, entity) {
-      _super_call.apply(this, [def, entity]);
-
-      this.entity = entity;
-      this.update_view_projection = true;
-      this.type = def.type || "perspective";
-      if (this.type === "perspective") {
-        this.fov = (def.fov !== undefined ? def.fov : 50) * 0.017453292519943295;
-        this.near = def.near !== undefined ? near : 0.1;
-        this.far = def.far !== undefined ? def.far : 1000;
-        this.aspect = def.aspect !== undefined ? def.aspect : 1;
-      }
-      else {
-        this.left = def.left || -0.5;
-        this.right = def.right || 0.5;
-        this.bottom = def.bottom || -0.5;
-        this.top = def.top || 0.5;
-        this.near = def.near || 0.1;
-        this.far = def.far || 20;
-
-        this.aspect = Math.abs((this.right - this.left) / (this.top - this.bottom));
-      }
-      this.drag_direction = raw.math.vec3();
-      this.last_drag_direction = raw.math.vec3();
-      this.version = 0;
-
-    }
-  })(proto.create);
-
-  proto.update_aspect = function (asp) {
-    this.aspect = asp;
-    this.update_view_projection = 1;
-  };
-
-
-  proto.yaw_pitch = function (dx, dy) {
-    this.rotate[0] += dx;
-    this.rotate[1] += dy;
-    raw.math.quat.rotate_eular(this.entity.transform.rotation, this.rotate[0], this.rotate[1], this.rotate[2]);
-    this.entity.transform.require_update = 1;
-  };
-
-  proto.set_rotate = function (x, y, z) {
-    this.rotate[0] = x;
-    this.rotate[1] = y;
-    this.rotate[2] = z;
-    raw.math.quat.rotate_eular(this.entity.transform.rotation, this.rotate[0], this.rotate[1], this.rotate[2]);
-    this.entity.transform.require_update = 1;
-  };
-
-  proto.set_position = function (x, y, z) {
-    this.entity.transform.position[0] = x;
-    this.entity.transform.position[1] = y;
-    this.entity.transform.position[2] = z;
-    this.entity.transform.require_update = 1;
-  };
-
-  proto.move_front_back = function (sp) {
-
-    this.entity.transform.position[0] += this.fw_vector[0] * sp;
-    this.entity.transform.position[1] += this.fw_vector[1] * sp;
-    this.entity.transform.position[2] += this.fw_vector[2] * sp;
-    this.entity.transform.require_update = 1;
-  };
-
-  proto.move_left_right = function (sp) {
-    this.entity.transform.position[0] += this.sd_vector[0] * sp;
-    this.entity.transform.position[1] += this.sd_vector[1] * sp;
-    this.entity.transform.position[2] += this.sd_vector[2] * sp;
-    this.entity.transform.require_update = 1;
-  };
-
-  proto.move_up_down = function (sp) {
-    this.entity.transform.position[0] += this.up_vector[0] * sp;
-    this.entity.transform.position[1] += this.up_vector[1] * sp;
-    this.entity.transform.position[2] += this.up_vector[2] * sp;
-    this.entity.transform.require_update = 1;
-  };
-  var len = 0;
-  proto.update_frustum_plane = function (p, x, y, z, w) {
-    len = x * x + y * y + z * z + w * w;
-    len = 1 / Math.sqrt(len);
-    this.frustum_plans[p][0] = x * len;
-    this.frustum_plans[p][1] = y * len;
-    this.frustum_plans[p][2] = z * len;
-    this.frustum_plans[p][3] = w * len;
-  };
-  proto.calc_bounds = (function () {
-    var minx, miny, minz, maxx, maxy, maxz;
-    function update_bounds(x, y, z) {
-      minx = Math.min(minx, x);
-      miny = Math.min(miny, y);
-      minz = Math.min(minz, z);
-
-      maxx = Math.max(maxx, x);
-      maxy = Math.max(maxy, y);
-      maxz = Math.max(maxz, z);
-
-
-    }
-    return function () {
-
-      var half_height = Math.tan((this.fov / 2.0));
-      var half_width = half_height * this.aspect;
-      var xn = half_width * this.near;
-      var xf = half_width * this.far;
-      var yn = half_width * this.near;
-      var yf = half_width * this.far;
-
-
-      minx = 99999;
-      miny = 99999;
-      minz = 99999;
-
-      maxx = -99999;
-      maxy = -99999;
-      maxz = -99999;
-
-
-
-      update_bounds(-xn, -yn, this.near);
-      update_bounds(xn, -yn, this.near);
-      update_bounds(xn, yn, this.near);
-      update_bounds(-xn, yn, this.near);
-
-
-      update_bounds(-xf, -yf, -this.far);
-      update_bounds(xf, -yf, -this.far);
-      update_bounds(xf, yf, -this.far);
-      update_bounds(-xf, yf, -this.far);
-
-
-
-      this._bounds[0] = minx;
-      this._bounds[1] = miny;
-      this._bounds[2] = minz;
-
-
-      this._bounds[3] = maxx;
-      this._bounds[4] = maxy;
-      this._bounds[5] = maxz;
-
-
-
-    }
-  })();
-  proto.update_frustum = function (me) {
-    raw.math.aabb.transform_mat4(this.bounds, this._bounds, this.view);
-    //RIGHT
-    this.update_frustum_plane(0, me[3] - me[0], me[7] - me[4], me[11] - me[8], me[15] - me[12]);
-    //LEFT
-    this.update_frustum_plane(1, me[3] + me[0], me[7] + me[4], me[11] + me[8], me[15] + me[12]);
-    //BOTTOM
-    this.update_frustum_plane(2, me[3] + me[1], me[7] + me[5], me[11] + me[9], me[15] + me[13]);
-    //TOP
-    this.update_frustum_plane(3, me[3] - me[1], me[7] - me[5], me[11] - me[9], me[15] - me[13]);
-    //FAR
-    this.update_frustum_plane(4, me[3] - me[2], me[7] - me[6], me[11] - me[10], me[15] - me[14]);
-    //NEAR
-    this.update_frustum_plane(5, me[3] + me[2], me[7] + me[6], me[11] + me[10], me[15] + me[14]);
-
-
-  };
-
-  proto.frustum_aabb = (function () {
-    var p = 0, dd = 0, plane;
-
-    proto._frustum_aabb = function (minx, miny, minz, maxx, maxy, maxz) {
-      for (p = 0; p < 6; p++) {
-        plane = this.frustum_plans[p];
-        dd = Math.max(minx * plane[0], maxx * plane[0])
-          + Math.max(miny * plane[1], maxy * plane[1])
-          + Math.max(minz * plane[2], maxz * plane[2])
-          + plane[3];
-
-        if (dd < 0) return false;
-      }
-      return true;
-    };
-
-    return function (aabb) {
-      return this._frustum_aabb(aabb[0], aabb[1], aabb[2], aabb[3], aabb[4], aabb[5]);
-    }
-
-  })();
-
-  proto.aabb_aabb = (function () {
-    var a;
-    return function (b) {
-      a = this.bounds;
-      return (a[0] <= b[3] && a[3] >= b[0]) &&
-        (a[1] <= b[4] && a[4] >= b[1]) &&
-        (a[2] <= b[5] && a[5] >= b[2]);
-    }
-
-  })();
-
-
-  proto.get_mouse_ray = (function () {
-    var v = raw.math.vec4(), start = raw.math.vec3(), end = raw.math.vec3();
-
-    proto.set_drag_direction = function (mouse_x, mouse_y, width, height) {
-      v[0] = (mouse_x / width) * 2 - 1;
-      v[1] = -(mouse_y / height) * 2 + 1;
-      v[2] = -1;
-      raw.math.vec3.transform_mat4(start, v, this.view_projection_inverse);
-      v[2] = 1;
-      raw.math.vec3.transform_mat4(v, v, this.view_projection_inverse);
-
-      raw.math.vec3.subtract(this.drag_direction, v, this.last_drag_direction);
-      raw.math.vec3.normalize(this.drag_direction, this.drag_direction);
-      raw.math.vec3.copy(this.last_drag_direction, v);
-      return this.drag_direction;
-
-    };
-
-    return function (mouse_ray, mouse_x, mouse_y, width, height) {
-      v[0] = (mouse_x / width) * 2 - 1;
-      v[1] = -(mouse_y / height) * 2 + 1;
-      v[2] = -1;      
-
-      raw.math.vec3.transform_mat4(start, v, this.view_projection_inverse);
-      v[2] = 1;      
-      raw.math.vec3.transform_mat4(mouse_ray, v, this.view_projection_inverse);
-      return mouse_ray;
-
-
-    }
-    return function (mouse_ray, mouse_x, mouse_y, width, height) {
-      const invMat = m4.inverse(viewProjection);
-      const start = m4.transformPoint(invMat, [clipX, clipY, -1]);
-      const end = m4.transformPoint(invMat, [clipX, clipY, 1]);
-      v[0] = (mouse_x / width) * 2 - 1;
-      v[1] = -(mouse_y / height) * 2 + 1;
-      v[2] = -1;
-      v[3] = 1;
-      raw.math.vec3.transform_mat4(v, v, this.view_projection_inverse);
-      v[2] = 1;
-      v[3] = 0;
-      raw.math.vec3.transform_mat4(mouse_ray, v, this.view_inverse);            
-      raw.math.vec3.normalize(mouse_ray, mouse_ray);
-    //  mouse_ray[0] = this.world_position[0] + mouse_ray[0];
-    //  mouse_ray[1] = this.world_position[1] + mouse_ray[1];
-    //  mouse_ray[2] = this.world_position[2] + mouse_ray[2];
-
-      return mouse_ray;
-
-    }
-  })();
-
-
-
-  function camera(component) {
-    _super.apply(this, [component]);
-   
-    this.view = raw.math.mat4();
-    this.view_inverse = raw.math.mat4();
-    this.projection = raw.math.mat4();
-    this.projection_inverse = raw.math.mat4();
-    this.view_projection = raw.math.mat4();
-    this.view_projection_inverse = raw.math.mat4();
-
-    this.rotate = raw.math.vec3(0, 0, 0);
-
-    this.version = 0;
-
-    this.up_vector = new Float32Array(this.view.buffer, (4 * 4), 3);
-    this.fw_vector = new Float32Array(this.view.buffer, (8 * 4), 3);
-    this.sd_vector = new Float32Array(this.view.buffer, 0, 3);
-
-    this.frustum_plans = [raw.math.vec4(), raw.math.vec4(), raw.math.vec4(), raw.math.vec4(), raw.math.vec4(), raw.math.vec4()];
-    this.world_position = new Float32Array(this.view.buffer, (12 * 4), 3);
-
-    this.bounds = raw.math.aabb();
-    this._bounds = raw.math.aabb();
-
-  }
-
-  camera.validate = function (component) {
-    component.ecs.use_system('camera_system');
-  };
-
-  return camera;
-
-}, raw.ecs.component));
-
-
-
-
-raw.ecs.register_system("camera_system", raw.define(function (proto, _super) {
-  var quat = raw.math.quat, mat4 = raw.math.mat4;
-
-  var trans = null, cam = null, entity = null;
-  proto.step = function () {
-
-    while ((entity = this.ecs.iterate_entities("camera")) !== null) {
-      cam = entity.camera;
-      trans = entity.transform;
-      if (cam.update_view_projection === 1) {        
-        if (cam.type === "perspective") {
-          mat4.perspective(cam.projection, cam.fov, cam.aspect, cam.near, cam.far);
-        }
-        else {
-          mat4.ortho(cam.projection, cam.left, cam.right, cam.bottom, cam.top, cam.near, cam.far);
-        }     
-        mat4.inverse(cam.projection_inverse, cam.projection);
-      }
-
-      if (trans.require_update !== 0) {
-        cam.version+=0.000001;
-        quat.to_mat4(cam.view, trans.rotation_world);
-        mat4.scale(cam.view, trans.scale_world);
-        cam.view[12] = trans.position_world[0];
-        cam.view[13] = trans.position_world[1];
-        cam.view[14] = trans.position_world[2];
-
-
-        cam.update_view_projection = 1;
-      }
-
-      if (cam.update_view_projection === 1) {
-        cam.version += 0.000001;
-        cam.update_view_projection = 0;
-        mat4.inverse(cam.view_inverse, cam.view);
-        mat4.multiply(cam.view_projection, cam.projection, cam.view_inverse);
-
-        mat4.inverse(cam.view_projection_inverse, cam.view_projection);
-        cam.update_frustum(cam.view_projection);
-        if (cam.type === "perspective") {
-          cam.calc_bounds();
-        }
-      }
-    }
-
-
-  };
-  proto.validate = function (ecs) {
-    this.priority = ecs.use_system('transform_system').priority + 50;
-  };
-  return function camera_system(def, ecs) {
-    _super.apply(this, [def, ecs]);
-
-  }
-
-}, raw.ecs.system));
-
-
-
-/*src/shading.js*/
-
-
-raw.shading.material = raw.define(function (proto, _super) {
-  function material(parameters) {
-    _super.apply(this, arguments);
-    parameters = parameters || {};
-    this.uuid = raw.guidi();
-
-    this.object_material = new Float32Array(16);
-    this.ambient = new Float32Array(this.object_material.buffer, 0, 4);
-    this.diffuse = new Float32Array(this.object_material.buffer, 4 * 4, 4);
-    this.specular = new Float32Array(this.object_material.buffer, 8 * 4, 4);
-
-    this.texture = parameters.texture || null;
-
-    raw.math.vec3.copy(this.ambient, parameters.ambient || [0.5, 0.5, 0.5]);
-    raw.math.vec3.copy(this.diffuse, parameters.diffuse || [0.5, 0.5, 0.5]);
-    raw.math.vec3.copy(this.specular, parameters.specular || [0.863, 0.863, 0.863]);
-
-    this.ambient[3] = 1;
-
-    this.texture_matrix = raw.math.mat3();
-
-    this.instances_count = -1;
-    this.wireframe = parameters.wireframe || false;
-    this.set_flag(2);
-    if (parameters.flags) this.set_flag(parameters.flags);
-    this.shader = raw.shading.material.shader;
-    this.draw_type = 4;
-    if (parameters.draw_type !== undefined) {
-      this.draw_type = parameters.draw_type;
-    }
-
-    this.on_before_render = new raw.event(this);
-    this.on_after_render = new raw.event(this);
-    this.draw_elements = false;
-
-    if (parameters.transparent !== undefined) {
-      this.set_tansparency(parameters.transparent);
-    }
-
-  }
-
-  material.shader = raw.webgl.shader.parse(`<?=chunk('precision')?>
-
-attribute vec3 a_position_rw;
-attribute vec2 a_uv_rw;
-attribute vec4 a_color_rw;
-uniform mat4 u_view_projection_rw;
-uniform mat3 u_texture_matrix_rw;
-uniform mat4 u_model_rw;
-varying vec2 v_uv_rw;
-varying vec4 v_color_rw;
-varying vec4 v_position_rw;
-vec4 att_position(void);
-vec3 att_uv(void);
-
-vec4 att_position(void){
-  return vec4(a_position_rw,1.0);
-}
-vec3 att_uv(void){
-  return vec3(a_uv_rw,1.0);
-}
-
-void vertex(void){
-  v_position_rw=u_model_rw*att_position();
-  gl_Position=u_view_projection_rw*v_position_rw;
-  v_uv_rw=(u_texture_matrix_rw*att_uv()).xy;
-  v_color_rw=a_color_rw;
-  gl_PointSize =10.0;
-}
-<?=chunk('precision')?>
-
-varying vec2 v_uv_rw;
-varying vec4 v_position_rw;
-varying vec4 v_color_rw;
-uniform mat4 u_object_material_rw;
-uniform sampler2D u_texture_rw;
-void fragment(void) {
-
-  gl_FragColor = texture2D(u_texture_rw, v_uv_rw)*v_color_rw ;
-  gl_FragColor.rgb*=u_object_material_rw[0].rgb;  
-gl_FragColor.w*=u_object_material_rw[0].w;
-  
-  
-
-}
-`);
-
-
-  proto.set_tansparency = function (v) {
-    this.ambient[3] = Math.min(v, 1);   
-    if (v < 1) this.set_flag(128);
-    else this.unset_flag(128);    
-    return (this);
-  };
-  proto.set_shinness = function (shin) {
-    this.specular[3] = shin;
-    return (this);
-  };
-  
-  
-  proto.render_mesh = (function () {
-    var eparams = [null, null, null]
-
-    proto.complete_render_mesh = function (renderer, shader, mesh) {
-      if (this.instances_count > -1) {
-        if (this.instances_count > 0) {
-          if (this.draw_elements) {
-            renderer.gl.ANGLE_instanced_arrays.drawElementsInstancedANGLE(this.final_draw_type, this.final_draw_count, 5125, mesh.draw_offset, this.instances_count);
-          }
-          else {
-            renderer.gl.ANGLE_instanced_arrays.drawArraysInstancedANGLE(this.final_draw_type, mesh.draw_offset, this.final_draw_count, this.instances_count);
-          }
-        }
-      }
-      else {
-        if (this.draw_elements) {
-          renderer.gl.drawElements(this.final_draw_type, this.final_draw_count, 5125, mesh.draw_offset);
-        }
-        else {
-          
-          renderer.gl.drawArrays(this.final_draw_type, mesh.draw_offset, this.final_draw_count);
-        }
-      }
-    };
-    return function (renderer, shader, mesh) {
-
-      eparams[0] = renderer;
-      eparams[1] = shader;
-      eparams[2] = mesh;
-
-      if (renderer.on_error) {
-        return;
-      }
-      if (this.flags & 1024) {
-        renderer.gl.disable(2929);
-      }
-      else {
-        renderer.gl.enable(2929);  
-      }
-      
-
-      if ((this.flags & 2048) !== 0) {
-        renderer.gl.disable(2884);
-      }
-      else {
-        renderer.gl.enable(2884);
-      }
-     
-
-      shader.set_uniform("u_object_material_rw", this.object_material)
-      shader.set_uniform("u_texture_matrix_rw", this.texture_matrix);
-      shader.set_uniform("u_texture_rw", 0);
-      renderer.use_texture(this.texture, 0);
-
-      
-
-      this.final_draw_type = this.wireframe ? 1 : this.draw_type;
-      this.final_draw_count = mesh.draw_count;
-      
-
-      this.draw_elements = renderer.activate_geometry_index_buffer(mesh.geometry, this.wireframe);
-
-      if (this.wireframe) this.final_draw_count *= 2;
-
-      this.on_before_render.trigger(eparams);
-     
-     this.complete_render_mesh(renderer, shader, mesh);
-
-     this.on_after_render.trigger(eparams);
-
-     
-
-
-    }
-  })();
-
-  return material;
-}, raw.flags_setting);
-
-
-raw.shading.shaded_material = raw.define(function (proto, _super) {
-
-  function shaded_material(def) {
-    def = def || {};
-    _super.apply(this, [def]);    
-    this.shader = raw.shading.shaded_material.shader;
-    this.flags = 4;
-    this.light_pass_limit = 1000;
-    this.lights_count = -1;
-    this.set_shinness(def.shinness || 100);
-    if (def.transparent !== undefined) {
-      this.set_tansparency(def.transparent);
-    }
-    if (def.cast_shadows) {
-      this.flags += 8
-    };
-
-    if (def.receive_shadows) {
-      this.flags += 16
-    };
-
-    return (this);
-
-  }
-
-  shaded_material.shader = raw.webgl.shader.parse(`<?=chunk('precision')?>
-attribute vec3 a_position_rw;
-attribute vec3 a_normal_rw;
-attribute vec2 a_uv_rw;
-attribute vec4 a_color_rw;
-uniform mat4 u_view_projection_rw;
-uniform mat4 u_model_rw;
-uniform mat3 u_texture_matrix_rw;
-
-varying vec2 v_uv_rw;
-varying vec4 v_position_rw;
-varying vec3 v_normal_rw;
-varying vec4 v_color_rw;
-
-vec4 att_position(void);
-vec4 att_normal(void);
-vec3 att_uv(void);
-
-vec4 att_position(void){
-  return vec4(a_position_rw,1.0);
-}
-vec4 att_normal(void){
-  return vec4(a_normal_rw,0.0);
-}
-
-vec3 att_uv(void){
-  return vec3(a_uv_rw,1.0);
-}
-
-void vertex(){
-v_position_rw=u_model_rw*att_position();
-  gl_Position=u_view_projection_rw*v_position_rw;
-v_normal_rw=(u_model_rw*att_normal()).xyz;
-v_uv_rw=(u_texture_matrix_rw*att_uv()).xy;
- v_color_rw=a_color_rw;
-}
-
-<?=chunk('precision')?>
-
-<?=chunk('fws-lighting')?>
-
-varying vec2 v_uv_rw;
-varying vec4 v_position_rw;
-varying vec3 v_normal_rw;
-varying vec4 v_color_rw;
-
-uniform mat4 u_object_material_rw;
-uniform sampler2D u_texture_rw;
-uniform vec4 u_eye_position_rw;
-
-void fragment(void) {
-vec3 fws_direction_to_eye = normalize(u_eye_position_rw.xyz - v_position_rw.xyz);
-
-fws_total_light=fws_lighting_calc(u_object_material_rw,v_position_rw.xyz,
-normalize(v_normal_rw),fws_direction_to_eye);
-
-gl_FragColor = vec4(fws_total_light, u_object_material_rw[0].w)* 
-texture2D(u_texture_rw, v_uv_rw)* v_color_rw;
-gl_FragColor.w*=u_object_material_rw[0].w;
-
-
-
-
-
-
-
-}
-
-`);
-
-
-  return shaded_material;
-}, raw.shading.material);
-
-
-
-raw.shading.light = raw.define(function (proto, _super) {
-
-  proto.update_bounds = function (mat,trans) {
-    if (this.light_type > -1) {
-      r = this.range * 0.25;
-      p = this.world_position;
-
-      this.bounds[0] = p[0];
-      this.bounds[1] = p[1];
-      this.bounds[2] = p[2];
-      this.bounds[3] = p[0];
-      this.bounds[4] = p[1];
-      this.bounds[5] = p[2];
-
-      minx = p[0] - r;
-      miny = p[1] - r;
-      minz = p[2] - r;
-
-      maxx = p[0] + r;
-      maxy = p[1] + r;
-      maxz = p[2] + r;
-
-
-      this.expand_bounds(minx, miny, minz);
-      this.expand_bounds(minx, miny, maxz);
-      this.expand_bounds(minx, maxy, minz);
-      this.expand_bounds(minx, maxy, maxz);
-
-      this.expand_bounds(maxx, miny, minz);
-      this.expand_bounds(maxx, miny, maxz);
-      this.expand_bounds(maxx, maxy, minz);
-      this.expand_bounds(maxx, maxy, maxz);
-
-    }
-  };
-  proto.set_intensity = function (v) {
-    this.ambient[3] = v;
-    return (this);
-  };
-
-  function light(def) {
-    def = def || {};
-    _super.apply(this, [def]);
-    this.light_material = new Float32Array(16);
-    this.ambient = new Float32Array(this.light_material.buffer, 0, 4);
-    this.diffuse = new Float32Array(this.light_material.buffer, 4 * 4, 4);
-    this.specular = new Float32Array(this.light_material.buffer, 8 * 4, 4);
-    this.attenuation = new Float32Array(this.light_material.buffer, 12 * 4, 4);
-
-    this.diffuse[3] = -1;
-    this.specular[3] = -1;
-    this.range = 20000;
-    this.light_type = 0;
-    this.item_type = 4;
-
-
-    raw.math.vec4.copy(this.ambient, def.ambient || [0.59, 0.59, 0.59, 1.0]);
-    raw.math.vec4.copy(this.diffuse, def.diffuse || [0.87, 0.87, 0.87, -1]);
-    raw.math.vec4.copy(this.specular, def.specular || [0.85, 0.85, 0.85, -1]);
-    raw.math.vec4.copy(this.attenuation, def.attenuation || [0, 0, 0, 0]);
-
-    this.cast_shadows = def.cast_shadows || false;
-    this.shadow_bias = def.shadow_bias || 0.00000001;
-    this.shadow_opacity = def.shadow_opacity || 0.5;
-    this.shadow_map_size = def.shadow_map_size || 1024;
-    this.shadow_camera_distance = def.shadow_camera_distance || 30;
-
-
-  }
-
-  return light;
-}, raw.rendering.renderable);
-
-
-
-
-
-raw.shading.post_process = raw.define(function (proto) {
-
-  function post_process(shader) {
-    this.guid = raw.guidi();
-    this.shader = shader || raw.shading.post_process.shader;
-    if (!this.on_apply) {
-      this.on_apply = null;
-    }
-    this.enabled = true;
-  }
-
-  post_process.shader = raw.webgl.shader.parse(`
-<?=chunk('precision')?>
-attribute vec3 a_position_rw;
-const vec2 madd=vec2(0.5,0.5);
-varying vec2 v_uv_rw;
-void vertex()
-{
-    gl_Position = vec4(a_position_rw.xy,0.0,1.0);	
-	v_uv_rw = a_position_rw.xy*madd+madd;  
-}
-<?=chunk('precision')?>
-uniform sampler2D u_texture_input_rw;
-varying vec2 v_uv_rw;
-void fragment(void){	
-gl_FragColor = texture2D(u_texture_input_rw, v_uv_rw) ;	
-
-
-}
-`)
-  proto.resize = function (width, height) { }
-  proto.bind_output = function (renderer, output) {
-    if (output === null) {
-      renderer.gl.bindFramebuffer(36160, null);
-      renderer.gl.viewport(0, 0, renderer.gl.canvas.width, renderer.gl.canvas.height);
-    }
-    else {
-      output.bind();
-    }
-  }
-
-  var on_apply_params = [null, null, null];
-  proto.apply = function (renderer, input, output) {
-    renderer.use_shader(this.shader);
-    this.bind_output(renderer, output);
-    if (this.on_apply !== null) {
-      on_apply_params[0] = renderer;
-      on_apply_params[1] = input;
-      on_apply_params[2] = output;
-      input = this.on_apply.apply(this, on_apply_params);
-
-    }
-    if (this.shader.set_uniform("u_texture_input_rw", 0)) {
-      renderer.use_direct_texture(input, 0);
-    }
-
-    renderer.draw_full_quad();
-  }
-
-  proto.on_apply = function (renderer, input, output) {
-    return input;
-  };
-
-  return post_process;
-});
-
-raw.shading.post_process.picture_adjustment = raw.define(function (proto, _super) {
-
-  function picture_adjustment(params) {
-    params = params || {};
-    _super.apply(this);
-    this.shader = raw.post_process.picture_adjustment.shader;
-    this.gamma = 1;
-    this.contrast = 1;
-    this.saturation = 1;
-    this.brightness = 3;
-    this.red = 1;
-    this.green = 1;
-    this.blue = 1;
-    this.alpha = 1;
-    raw.merge_object(params, this);
-
-  }
-
-
-  picture_adjustment.shader = raw.shading.post_process.shader.extend(`
-
-uniform mat3 u_pa_params;
-
-void fragment(){	
-	vec4 c = texture2D(u_texture_input_rw, v_uv_rw);
-    if (c.a > 0.0) {
-
-		
-    }
-        float gamma=u_pa_params[0].x;
-		float contrast=u_pa_params[0].y;
-		float saturation=u_pa_params[0].z;
-		float brightness=u_pa_params[1].x;
-		float red=u_pa_params[1].y;
-		float green=u_pa_params[1].z;
-		float blue=u_pa_params[2].x;
-		
-        //c.rgb /= c.a;
-
-        vec3 rgb = pow(c.rgb, vec3(1.0 / gamma));
-        rgb = mix(vec3(0.5), mix(vec3(dot(vec3(0.2125, 0.7154, 0.0721), rgb)), rgb, saturation), contrast);
-        rgb.r *= red;
-        rgb.g *= green;
-        rgb.b *= blue;
-
-        c.rgb = rgb * brightness;        
-     //   c.rgb *= c.a;
-
-
-	float alpha=u_pa_params[2].y;
-    if(v_uv_rw.x>0.5)
-        gl_FragColor = c * alpha;
-    else 
-        gl_FragColor =texture2D(u_texture_input_rw, v_uv_rw);
-}
-`);
-
-  var u_pa_params = raw.math.mat3();
-  proto.on_apply = function (renderer, input, output) {
-    u_pa_params[0] = this.gamma;
-    u_pa_params[1] = this.contrast;
-    u_pa_params[2] = this.saturation;
-    u_pa_params[3] = this.brightness;
-    u_pa_params[4] = this.red;
-    u_pa_params[5] = this.green;
-    u_pa_params[6] = this.blue;
-    u_pa_params[7] = this.alpha;
-
-
-    this.shader.set_uniform("u_pa_params", u_pa_params);
-    return input;
-  };
-
-  return picture_adjustment;
-
-}, raw.shading.post_process);
-
-
-raw.shading.post_process.fxaa = raw.define(function (proto, _super) {
-
-
-  function fxaa(params) {
-    params = params || {};
-    _super.apply(this);
-    this.shader = raw.shading.post_process.fxaa.shader;
-    this.span_max = 16;
-    this.reduce_min = (1 / 256);
-    this.reduce_mul = (1 / 8);
-    this.enabled = false;
-    raw.merge_object(params, this);
-
-  }
-
-
-
-  fxaa.shader = raw.shading.post_process.shader.extend(`
-
-uniform vec3 u_inverse_filter_texture_size;
-uniform vec3 u_fxaa_params;
-
-void fragment(void){	
-	float R_fxaaSpanMax=u_fxaa_params.x;
-	float R_fxaaReduceMin=u_fxaa_params.y;
-	float R_fxaaReduceMul=u_fxaa_params.z;	
-	vec2 texCoordOffset = u_inverse_filter_texture_size.xy;
-	vec3 luma = vec3(0.299, 0.587, 0.114);	
-	float lumaTL = dot(luma, texture2D(u_texture_input_rw, v_uv_rw.xy + (vec2(-1.0, -1.0) * texCoordOffset)).xyz);
-	float lumaTR = dot(luma, texture2D(u_texture_input_rw, v_uv_rw.xy + (vec2(1.0, -1.0) * texCoordOffset)).xyz);
-	float lumaBL = dot(luma, texture2D(u_texture_input_rw, v_uv_rw.xy + (vec2(-1.0, 1.0) * texCoordOffset)).xyz);
-	float lumaBR = dot(luma, texture2D(u_texture_input_rw, v_uv_rw.xy + (vec2(1.0, 1.0) * texCoordOffset)).xyz);
-	float lumaM  = dot(luma, texture2D(u_texture_input_rw, v_uv_rw.xy).xyz);
-
-	vec2 dir;
-	dir.x = -((lumaTL + lumaTR) - (lumaBL + lumaBR));
-	dir.y = ((lumaTL + lumaBL) - (lumaTR + lumaBR));
-	
-	float dirReduce = max((lumaTL + lumaTR + lumaBL + lumaBR) * (R_fxaaReduceMul * 0.25), R_fxaaReduceMin);
-	float inverseDirAdjustment = 1.0/(min(abs(dir.x), abs(dir.y)) + dirReduce);
-	
-	dir = min(vec2(R_fxaaSpanMax, R_fxaaSpanMax), 
-		max(vec2(-R_fxaaSpanMax, -R_fxaaSpanMax), dir * inverseDirAdjustment)) * texCoordOffset;
-
-	vec3 result1 = (1.0/2.0) * (
-		texture2D(u_texture_input_rw, v_uv_rw.xy + (dir * vec2(1.0/3.0 - 0.5))).xyz +
-		texture2D(u_texture_input_rw, v_uv_rw.xy + (dir * vec2(2.0/3.0 - 0.5))).xyz);
-
-	vec3 result2 = result1 * (1.0/2.0) + (1.0/4.0) * (
-		texture2D(u_texture_input_rw, v_uv_rw.xy + (dir * vec2(0.0/3.0 - 0.5))).xyz +
-		texture2D(u_texture_input_rw, v_uv_rw.xy + (dir * vec2(3.0/3.0 - 0.5))).xyz);
-
-	float lumaMin = min(lumaM, min(min(lumaTL, lumaTR), min(lumaBL, lumaBR)));
-	float lumaMax = max(lumaM, max(max(lumaTL, lumaTR), max(lumaBL, lumaBR)));
-	float lumaResult2 = dot(luma, result2);
-	
-
-if(lumaResult2 < lumaMin || lumaResult2 > lumaMax)
-		gl_FragColor = vec4(result1, 1.0);
-	else
-		gl_FragColor = vec4(result2, 1.0);
-
-if(v_uv_rw.x<0.5){
-    gl_FragColor=texture2D(u_texture_input_rw, v_uv_rw);
-}
-else {
-	
-gl_FragColor.rgb*=1.5;
-}
-
-
-}
-`);
-
-
-  var u_inverse_filter_texture_size = raw.math.vec3();
-  var u_fxaa_params = raw.math.vec3();
-
-  proto.on_apply = function (renderer, input, output) {
-    u_inverse_filter_texture_size[0] = 1 / input.width;
-    u_inverse_filter_texture_size[1] = 1 / input.height;
-    this.shader.set_uniform("u_inverse_filter_texture_size", u_inverse_filter_texture_size);
-
-    u_fxaa_params[0] = this.span_max;
-    u_fxaa_params[1] = this.reduce_min;
-    u_fxaa_params[2] = this.reduce_mul;
-
-    this.shader.set_uniform("u_fxaa_params", u_fxaa_params);
-
-    return input;
-  };
-
-  return fxaa;
-
-
-}, raw.shading.post_process);
-
-/*src/rendering.js*/
-
-raw.rendering.mesh = raw.define(function (proto, _super) {
-
-  function mesh(def) {
-    def = def || {};
-    _super.apply(this, [def]);
-
-    this.geometry = def.geometry || null;
-    this.material = def.material || null;
-    this.draw_offset = 0;
-    if (this.geometry !== null) this.draw_count = this.geometry.num_items;
-    this.item_type = 2;
-
-  }
-  proto.update_bounds = function (mat,trans) {
-    raw.math.aabb.transform_mat4(this.bounds, this.geometry.aabb, mat);
-    this.bounds_sphere = this.geometry.bounds_sphere * trans.scale_world[0];
-  };
-
-  return mesh;
-}, raw.rendering.renderable);
-
-
-
-
-
-raw.rendering.debug_points = raw.define(function (proto, _super) {
-  var mat = new raw.shading.material();
-
-  mat.shader = raw.webgl.shader.parse(`
-<?=chunk('precision')?>
-attribute vec3 a_point_position_rw;
-attribute vec4 a_point_color_rw;
-
-uniform mat4 u_view_projection_rw;
-uniform mat4 u_model_rw;
-
-varying vec3 point_color_v;
-
-void vertex(){	    
-    gl_Position = u_view_projection_rw*u_model_rw* vec4(a_point_position_rw,1.0);	
-    point_color_v=a_point_color_rw.xyz;  
-    gl_PointSize =a_point_color_rw.w;
-}
-<?=chunk('precision')?>
-
-varying vec3 point_color_v;
-void fragment(void) {	        
-gl_FragColor.xyz=point_color_v;
-gl_FragColor.w=1.0;
-}
-
-
-`);
-
-  mat.render_mesh = function (renderer, shader, mesh) {
-    if (mesh.points_count < 1) return;    
-    
-    renderer.gl.drawArrays(0, 0, mesh.points_count);
-  };
-
-
-  proto.clear = function () {
-    this.points_position.i = 0;
-    this.points_count = 0;
-  };
-
-
-  proto.add = (function () {
-    var i = 0, _r=1, _g=1, _b=1, _s=10;
-    proto.add_vec3 = function (v, r, g, b, s) {
-      _r = r; _g = g; _b = b; _s = s;
-      this.add(v[0], v[1], v[2], _r, _g, _b, _s);
-    };
-
-    return function (x, y, z, r, g, b, s) {
-      _r = r; _g = g; _b = b; _s = s;
-      i = this.points_position.i;
-      this.points_position.data[i] = x;
-      this.points_position.data[i + 1] = y;
-      this.points_position.data[i + 2] = z;
-
-      this.points_position.data[i + 3] = r;
-      this.points_position.data[i + 4] = g;
-      this.points_position.data[i + 5] = b;
-      this.points_position.data[i + 6] = s;
-
-      this.points_position.i += 7;
-
-      this.points_position.data_length = this.points_position.i;
-      this.points_position.needs_update = true;
-
-      this.points_count = (this.points_position.i / 7);
-      this.draw_count = this.points_count;
-    }
-  })();
-
-
-  proto.update_bounds = function (mat) { };
-
-  function debug_points(def) {
-    def = def || {};
-    _super.apply(this,[def]);
-    
-
-    def.max_points = def.max_points || 1000;
-
-    this.geometry = new raw.geometry();
-
-    this.points_position = this.geometry.add_attribute("a_point_position_rw", {
-      item_size: 3, data: new Float32Array(def.max_points * 3), stride: 7 * 4
-    });
-    this.points_color = this.geometry.add_attribute("a_point_color_rw", {
-      item_size: 4, stride: 7 * 4, offset: 3 * 4,
-    });
-    this.points_position.i = 0;
-    this.points_count = 0;
-    this.material = mat;
-    this.draw_offset = 0;
-    this.draw_count = this.geometry.num_items;
-
-    this.flags = 1024 + 1;
-
-  }
-
-  return debug_points;
-}, raw.rendering.mesh);
-
-
-
-
-
-raw.rendering.debug_lines = raw.define(function (proto, _super) {
-  var mat = new raw.shading.material();
-
-  mat.shader = raw.webgl.shader.parse(`
-<?=chunk('precision')?>
-attribute vec3 a_line_position_rw;
-attribute vec3 a_line_color_rw;
-
-uniform mat4 u_view_projection_rw;
-uniform mat4 u_model_rw;
-
-varying vec3 line_color_v;
-
-void vertex(){	    
-    gl_Position = u_view_projection_rw*u_model_rw* vec4(a_line_position_rw,1.0);	
-    line_color_v=a_line_color_rw.xyz;  
-}
-<?=chunk('precision')?>
-
-varying vec3 line_color_v;
-void fragment(void) {	        
-gl_FragColor.xyz=line_color_v;
-gl_FragColor.w=1.0;
-}
-
-
-`);
-
-  mat.render_mesh = function (renderer, shader, mesh) {
-    if (mesh.line_count < 1) return;
-    
-
-    renderer.gl.drawArrays(1, 0, mesh.line_count);
-  };
-
-
-  proto.clear = function () {
-    this.line_position.i = 0;
-    this.line_count = 0;
-  };
-
-
-  proto._add = (function () {
-    var i = 0;
-
-    proto.set_color = function (r, g, b) {
-      this.color[0] = r;
-      this.color[1] = g;
-      this.color[2] = b;
-      return this;
-    }
-
-    proto.add_vec3 = function (v0, v1) {
-      this._add(
-        v0[0], v0[1], v0[2], this.color[0], this.color[1], this.color[2],
-        v1[0], v1[1], v1[2], this.color[0], this.color[1], this.color[2]
-      );
-      return this;
-    };
-
-    proto.add2 = function (x0, y0, z0, x1, y1, z1) {
-      this._add(
-        x0, y0, z0, this.color[0], this.color[1], this.color[2],
-        x1, y1, z1, this.color[0], this.color[1], this.color[2]
-      )
-    };
-
-    return function (x0, y0, z0,r0,g0,b0, x1, y1, z1,r1,g1,b1) {
-      i = this.line_position.i;
-      this.line_position.data[i] = x0;
-      this.line_position.data[i + 1] = y0;
-      this.line_position.data[i + 2] = z0;
-
-      this.line_position.data[i + 3] = r0;
-      this.line_position.data[i + 4] = g0;
-      this.line_position.data[i + 5] = b0;
-
-      this.line_position.data[i + 6] = x1;
-      this.line_position.data[i + 7] = y1;
-      this.line_position.data[i + 8] = z1;
-
-      this.line_position.data[i + 9] = r1;
-      this.line_position.data[i + 10] = g1;
-      this.line_position.data[i + 11] = b1;
-
-      this.line_position.i += 12;
-
-      this.line_position.data_length = this.line_position.i;
-      this.line_position.needs_update = true;
-
-      this.line_count = (this.line_position.i / 6);
-      this.draw_count = this.line_count;
-    }
-  })();
-
-
-  proto.update_bounds = function (mat) { };
-
-  function debug_lines(def) {
-    def = def || {};
-    _super.apply(this, [def]);
-
-
-    def.max_lines = def.max_lines || 1000;
-
-    this.geometry = new raw.geometry();
-
-    this.line_position = this.geometry.add_attribute("a_line_position_rw", {
-      item_size: 3, data: new Float32Array(def.max_lines * 3*2), stride: 6 * 4
-    });
-    this.line_color = this.geometry.add_attribute("a_line_color_rw", {
-      item_size: 3, stride: 6 * 4, offset: 3 * 4,
-    });
-    this.line_position.i = 0;
-    this.line_count = 0;
-    this.material = mat;
-    this.draw_offset = 0;
-    this.draw_count = this.geometry.num_items;
-    this.color = [1, 1, 1];
-    this.flags =  1;
-
-  }
-
-  return debug_lines;
-}, raw.rendering.mesh);
-
-
-raw.rendering.debug_shapes = raw.define(function (proto, _super) {
-  var mat = new raw.shading.material();
-
-  mat.shader = raw.webgl.shader.parse(`
-<?=chunk('precision')?>
-attribute vec3 a_position_rw;
-attribute vec3 a_shape_position_rw;
-attribute vec3 a_shape_size_rw;
-attribute vec4 a_shape_rotation_rw;
-attribute vec3 a_shape_color_rw;
-
-varying vec3 v_shape_color_rw;
-
-uniform mat4 u_view_projection_rw;
-uniform mat4 u_model_rw;
+/*src/systems/skeleton_system.js*/
+
+(function () {
+  raw.skeleton_system = {};
+  var glsl = raw.webgl.shader.create_chunks_lib(`/*chunk-bone-render*/
+uniform vec4 u_joint_qr;
+uniform vec3 u_bone_start;
+uniform vec3 u_bone_end;
+uniform vec3 u_skeleton_pos;
 <?=chunk('quat-dquat')?>
 
-void vertex(){	    
-    vec4 v_position_rw=vec4(a_position_rw*a_shape_size_rw,1.0);   
-    v_position_rw.xyz=quat_transform(a_shape_rotation_rw,v_position_rw.xyz);  
-    v_position_rw.xyz+=a_shape_position_rw;
-    gl_Position = u_view_projection_rw*u_model_rw* v_position_rw;	
-  v_shape_color_rw=a_shape_color_rw;
-}
-<?=chunk('precision')?>
-
-varying vec3 v_shape_color_rw;
-void fragment(void) {	        
-gl_FragColor=vec4(v_shape_color_rw,1.0);
-}
-
-
-`);
-
-  var i = 0, shp = null;
-  var u_rotation = raw.math.quat(), u_scale = raw.math.vec3(), u_position = raw.math.vec3(), u_color = raw.math.vec3();
-
-  mat.render_mesh = function (renderer, shader, mesh) {
-    if (mesh.shapes_count < 1) return;
-    renderer.gl.disable(2929);
-    renderer.gl.ANGLE_instanced_arrays.drawArraysInstancedANGLE(1, 0,
-      geo.num_items, mesh.shapes_count);
-
-
-    return;
-    for (i = 0; i < mesh.shapes.length; i++) {
-      shp = mesh.shapes[i];
-
-      u_position[0] = shp[0][0];
-      u_position[1] = shp[0][1];
-      u_position[2] = shp[0][2];
-
-      u_rotation[0] = shp[1][0];
-      u_rotation[1] = shp[1][1];
-      u_rotation[2] = shp[1][2];
-      u_rotation[3] = shp[1][3];
-
-      u_color[0] = shp[2][0];
-      u_color[1] = shp[2][1];
-      u_color[2] = shp[2][2];
-
-      shader.set_uniform("u_position", u_position);
-      shader.set_uniform("u_rotation", u_rotation);
-      shader.set_uniform("u_trans_size", u_color);
-
-      renderer.gl.drawArrays(1, 0, geo.num_items);
-    }
-
-  
-  };
-
-  var b = raw.geometry.lines_builder;
-  b.clear();
-  
-  for (var a = 0; a < 361; a += 12) {
-    if (a === 0) {
-      b.move_to(
-        Math.sin(a * 0.017453292519943295) * 0.5,
-        Math.cos(a * 0.017453292519943295) * 0.5,
-        0
-      );
-    }
-    else {
-      b.add_to(
-        Math.sin(a * 0.017453292519943295) * 0.5,
-        Math.cos(a * 0.017453292519943295) * 0.5,
-        0
-      );
-
-    }
-  }
-
-  var geo = b.build();
-
-  console.log('geo', geo);
-
-  proto.update_bounds = function (mat) { };
-
-
-  proto.clear = function () {
-    this.di = 0;
-    this.shapes_count = 0;
-    this.shapes_rotation.data_length = 0;
-  };
-
-  proto.add = (function () {
-    var i = 0;
-
-    var _color = [1, 1, 1], _size = [1, 1, 1], _rotation=[0,0,0,1];
-    proto.add_shape = function (pos, size, rotation, color) {
-      color = color || _color;
-      size = size || _size;
-      rotation = rotation || _rotation;
-      this.add(pos[0], pos[1], pos[2],
-        size[0], size[1], size[2],
-        rotation[0], rotation[1], rotation[2], rotation[3],
-        color[0], color[1], color[2]);
-    }
-    return function (x, y, z, sx, sy, sz, rx, ry, rz, rw, cx, cy, cz) {
-      i = this.di;
-
-      
-      this.shapes_position.data[i] = x;
-      this.shapes_position.data[i + 1] = y;
-      this.shapes_position.data[i + 2] = z;
-
-      this.shapes_size.data[i] = sx;
-      this.shapes_size.data[i + 1] = sy;
-      this.shapes_size.data[i + 2] = sz;
-
-      this.shapes_color.data[i] = cx;
-      this.shapes_color.data[i + 1] = cy;
-      this.shapes_color.data[i + 2] = cz;
-
-      this.di += 3;
-      
-      this.shapes_position.data_length = this.di;
-      this.shapes_position.needs_update = true;
-
-
-      this.shapes_size.data_length = this.di;
-      this.shapes_size.needs_update = true;
-
-      this.shapes_color.data_length = this.di;
-      this.shapes_color.needs_update = true;
-      this.shapes_count = this.di / 3;
-
-      i = this.shapes_rotation.data_length;
-      this.shapes_rotation.data[i] = rx;
-      this.shapes_rotation.data[i + 1] = ry;
-      this.shapes_rotation.data[i + 2] = rz;
-      this.shapes_rotation.data[i + 3] = rw;
-      this.shapes_rotation.data_length += 4;
-      this.shapes_rotation.needs_update = true;
-
-
-    }
-
-
-  })();
-
-
-  function debug_shapes(def) {
-    def = def || {};
-    _super.apply(this, [def]);
-
-
-    def.max_shapes = def.max_shapes || 10000;
-
-    this.shapes = [];
-    this.geometry = new raw.geometry();
-    this.geometry.attributes.a_position_rw = geo.attributes.a_position_rw;
-
-    this.shapes_position = this.geometry.add_attribute("a_shape_position_rw", {
-      item_size: 3, data: new Float32Array(def.max_shapes * 3), divisor: 1,
-    });
-    this.shapes_size = this.geometry.add_attribute("a_shape_size_rw", {
-      item_size: 3, data: new Float32Array(def.max_shapes * 3), divisor: 1,
-    });
-
-    
-
-    this.shapes_color = this.geometry.add_attribute("a_shape_color_rw", {
-      item_size: 3, data: new Float32Array(def.max_shapes * 3), divisor: 1,
-    });
-    this.shapes_rotation = this.geometry.add_attribute("a_shape_rotation_rw", {
-      item_size: 4, data: new Float32Array(def.max_shapes * 4), divisor: 1,
-    });
-
-
-    this.shapes_rotation.data_length = 0;
-    this.di = 0;
-    this.material = mat;
-    this.flags = 1;
-
-  }
-
-  return debug_shapes;
-}, raw.rendering.mesh);
-
-
-
-
-
-
-raw.rendering.debug_aabbs = raw.define(function (proto, _super) {
-  var mat = new raw.shading.material();
-
-  mat.shader = raw.webgl.shader.parse(`
-<?=chunk('precision')?>
-attribute vec3 a_position_rw;
-attribute vec3 a_box_position_rw;
-attribute vec3 a_box_size_rw;
-attribute vec3 a_box_color_rw;
-
-uniform mat4 u_view_projection_rw;
-uniform mat4 u_model_rw;
-varying vec3 v_box_color_rw;
 void vertex(){
-    vec4 pos;
-    pos.xyz=a_position_rw*a_box_size_rw;    
-    pos.xyz+=a_box_position_rw;
-    pos.w=1.0;    
-    v_box_color_rw=a_box_color_rw;
-    gl_Position = u_view_projection_rw*u_model_rw*pos;	
-    gl_PointSize =5.0;
-
+ super_vertex();
+ v_position_rw=vec4(a_position_rw,1.0);     
+ float len=length((u_bone_end-u_bone_start));
+ v_position_rw.xz*=min(len,1.0);
+ v_position_rw.y*=len; 
+ v_position_rw.xyz=quat_transform(u_joint_qr,v_position_rw.xyz); 
+ v_position_rw.xyz+=u_bone_start;
+ gl_Position=u_view_projection_rw*v_position_rw;
 }
-<?=chunk('precision')?>
-varying vec3 v_box_color_rw;
-void fragment(void) {	
-gl_FragColor=vec4(v_box_color_rw,1.0);
-}`);
 
+/*chunk-axis-render*/
 
-
-  mat.render_mesh = function (renderer, shader, mesh) {
-    if (mesh.boxes_count < 1) return;
-    renderer.gl.disable(2929);
-    renderer.gl.ANGLE_instanced_arrays.drawArraysInstancedANGLE(1, 0, mesh.geometry.num_items, mesh.boxes_count);
-
-  };
-
-
-  proto.update_bounds = function (mat) { };
-
-  proto.clear = function () {
-    this.di = 0;
-    this.boxes_count = 0;
-  };
-
-
-  proto.add_aabb = (function () {
-    var x, y, z, sx, sy, sz
-    return function (b) {
-      sx = b[3] - b[0];
-      sy = b[4] - b[1];
-      sz = b[5] - b[2];
-      x = b[0] + sx * 0.5;
-      y = b[1] + sy * 0.5;
-      z = b[2] + sz * 0.5;
-
-      this.add(x, y, z, sx, sy, sz);
-    }
-  })();
-  proto.add = (function () {
-    var i = 0;
-    return function (x, y, z, sx, sy, sz) {
-      i = this.di;
-      this.boxes_position.data[i] = x;
-      this.boxes_position.data[i + 1] = y;
-      this.boxes_position.data[i + 2] = z;
-
-      this.boxes_size.data[i] = sx;
-      this.boxes_size.data[i + 1] = sy;
-      this.boxes_size.data[i + 2] = sz;
-
-      this.boxes_color.data[i] = 1;
-      this.boxes_color.data[i + 1] = 0;
-      this.boxes_color.data[i + 2] = 0;
-
-      this.di += 3;
-
-      this.boxes_position.data_length = this.di;
-      this.boxes_position.needs_update = true;
-
-      this.boxes_size.data_length = this.di;
-      this.boxes_size.needs_update = true;
-
-      this.boxes_color.data_length = this.di;
-      this.boxes_color.needs_update = true;
-      this.boxes_count = this.di / 3;
-    }
-  })();
-
-  function debug_aabbs(def) {
-    def = def || {};
-    _super.apply(this, [def]);
-    def.max_boxes = def.max_boxes || 1000;
-    var geo = raw.rendering.debug_aabbs.get_lines_geometry();
-
-    this.boxes_position = geo.add_attribute("a_box_position_rw", {
-      item_size: 3, data: new Float32Array(def.max_boxes * 3), divisor: 1,
-    });
-    this.boxes_size = geo.add_attribute("a_box_size_rw", {
-      item_size: 3, data: new Float32Array(def.max_boxes * 3), divisor: 1,
-    });
-
-    this.boxes_color = geo.add_attribute("a_box_color_rw", {
-      item_size: 3, data: new Float32Array(def.max_boxes * 3), divisor: 1,
-    });
-
-    this.geometry = geo;
-    this.material = mat;
-
-    this.max_boxes = 0;
-    this.di = 0;
-    this.box_color = [0.5, 0.5, 0.5];    
-
-    this.flags = 1024 + 1;
-    return (this);
-
-
-  }
-  debug_aabbs.get_lines_geometry = function () {
-    var b = raw.geometry.lines_builder;
-    b.clear();
-    b.move_to(-0.5, -0.5, -0.5)
-      .add_to(0.5, -0.5, -0.5)
-      .add_to(0.5, 0.5, -0.5)
-      .add_to(-0.5, 0.5, -0.5)
-      .add_to(-0.5, -0.5, -0.5);
-
-    b.move_to(-0.5, -0.5, -0.5).add_to(-0.5, -0.5, 0.5);
-    b.move_to(0.5, -0.5, -0.5).add_to(0.5, -0.5, 0.5);
-
-    b.move_to(-0.5, 0.5, -0.5).add_to(-0.5, 0.5, 0.5);
-    b.move_to(0.5, 0.5, -0.5).add_to(0.5, 0.5, 0.5);
-
-    b.move_to(-0.5, -0.5, 0.5)
-      .add_to(0.5, -0.5, 0.5)
-      .add_to(0.5, 0.5, 0.5)
-      .add_to(-0.5, 0.5, 0.5)
-      .add_to(-0.5, -0.5, 0.5);
-
-    return b.build();
-  }
-
-
-  return debug_aabbs;
-}, raw.rendering.mesh);
-
-
-
-
-
-raw.rendering.transforms_manipulator = raw.define(function (proto, _super) {
-  var mat = new raw.shading.material();
-
-  mat.set_flag(8192 + 128);
-  // + 128
-  
-  mat.shader = raw.webgl.shader.parse(`
-<?=chunk('precision')?>
 attribute vec3 a_position_rw;
+attribute vec4 a_color_rw;
 uniform mat4 u_view_projection_rw;
-uniform vec3 u_trans_position;
-uniform float u_trans_size;
-void vertex(){	    
-    gl_Position = u_view_projection_rw* 
-vec4(u_trans_position+(a_position_rw*u_trans_size),1.0);	
+uniform vec4 u_joint_qr;
+uniform vec3 u_bone_start;
+uniform vec3 u_bone_end;
+uniform vec3 u_skeleton_pos;
+
+varying vec4 v_color_rw;
+<?=chunk('quat-dquat')?>
+void vertex(){ 
+float len=max(length(u_bone_end-u_bone_start),0.5);
+ vec4 v_position_rw=vec4(a_position_rw,1.0);  
+v_position_rw.y*=len;
+//v_position_rw.xz*=len*0.25;
+ v_position_rw.xyz=quat_transform(u_joint_qr,v_position_rw.xyz); 
+ v_position_rw.xyz+=u_bone_start; //+u_skeleton_pos;
+ v_color_rw=a_color_rw;
+ gl_Position=u_view_projection_rw*v_position_rw;
+ 
 }
 <?=chunk('precision')?>
-uniform vec4 u_marker_color;
-void fragment(void) {	        
-gl_FragColor=u_marker_color;
+
+varying vec4 v_color_rw;
+void fragment(void) {
+  gl_FragColor =v_color_rw;
 }
-`);
 
- // mat.shader.pickable = mat.shader;
 
-  var geo = raw.geometry.sphere({ rad: 1 });
-  var i = 0, trans = null;
-  var u_marker_color = raw.math.vec4(1, 0, 0, 0.45);
-  mat.render_mesh = function (renderer, shader, mesh) {
+/*chunk-skinned-mesh*/
+attribute vec4 a_joints_indices;
+attribute vec4 a_joints_weights;
 
-    if (renderer.pickables_pass) {
-     
-    } 
-    // renderer.gl.enable(2884);
-    renderer.gl.disable(2929);
-    renderer.activate_geometry_index_buffer(mesh.geometry, false);
-    for (i = 0; i < mesh.transforms.length; i++) {
-      trans = mesh.transforms[i];
-      if (trans[2] === -1) {
-        trans[2] = renderer.create_picking_color_id();
+uniform vec4 joint_qr[60];
+uniform vec4 joint_qd[60];
+
+vec3 dquat_transform(vec4 qr, vec4 qd, vec3 v)
+{
+  return (v + cross(2.0 * qr.xyz, cross(qr.xyz, v) + qr.w * v))+
+ (2.0 * (qr.w * qd.xyz - qd.w * qr.xyz + cross(qr.xyz, qd.xyz)));  
+}
+vec3 dquat_transform2(vec4 qr, vec4 qd, vec3 v)
+{
+  return (v + cross(2.0 * qr.xyz, cross(qr.xyz, v) + qr.w * v));
+}
+
+vec4 _qr;
+vec4 _qd;
+vec4 att_position(void){
+vec4 pos=super_att_position();
+vec4 w=a_joints_weights;
+int i0=int(a_joints_indices.x);
+int i1=int(a_joints_indices.y);
+int i2=int(a_joints_indices.z);
+int i3=int(a_joints_indices.w);
+
+
+vec4 dqr0 = joint_qr[i0];
+vec4 dqr1 = joint_qr[i1];
+vec4 dqr2 = joint_qr[i2];
+vec4 dqr3 = joint_qr[i3];
+if (dot(dqr0, dqr1) < 0.0) w.y *= -1.0;
+if (dot(dqr0, dqr2) < 0.0) w.z *= -1.0;
+if (dot(dqr0, dqr3) < 0.0) w.w *= -1.0;
+
+_qr=w.x*dqr0+w.y*dqr1+w.z*dqr2+w.w*dqr3;
+_qd=w.x*joint_qd[i0]+w.y*joint_qd[i1]+w.z*joint_qd[i2]+w.w*joint_qd[i3];
+float len =1.0/ length(_qr);
+_qr *= len;
+_qd *= len;
+
+pos.xyz=dquat_transform(_qr,_qd,pos.xyz);
+
+
+return pos;
+
+}
+vec4 att_normal(void){
+  return vec4(dquat_transform2(_qr,_qd,a_normal_rw),0.0);
+}
+
+void vertex(){
+super_vertex();
+}
+
+    `);
+
+
+  raw.ecs.register_component("skeleton", raw.define(function (proto, _super) {
+
+    proto.create = (function (_super) {
+      var self, t, bind_pos = [], ik_chain = null;
+      return function (def, entity, ecs) {
+        _super.apply(this, [def, entity, ecs]);
+
+        this.skinned_joints.length = 0;
+        this.joints.length = 0;
+        this.display = def.display || false;
+
+        this.ecs = ecs;
+        def.joints.for_each(function (j, i, self) {
+          joint = ecs.create_entity({
+            components: {
+              'transform': {
+                position: j.position || j.pos,
+                rotation: j.rotation || j.rot,
+                scale: j.scale,
+                scaleable: false,
+              },
+            }
+          });
+          if (j.eular) {
+            raw.math.quat.rotate_eular(joint.transform.rotation, j.eular[0], j.eular[1], j.eular[2]);
+          }
+
+          if (def.pre_scale) {
+            raw.math.vec3.multiply(joint.transform.position, joint.transform.position, def.pre_scale);
+
+
+
+          }
+
+          raw.assign(joint, {
+            name: j.name || ('j' + i), length: 0, parent: null,
+            skin_index: (def.all_skin_joints ? i : j.skin_index),
+            cone: j.cone
+          });
+
+          if (j.skin_index !== undefined) joint.skin_index = j.skin_index;
+          if (joint.skin_index === undefined) joint.skin_index = -1;
+
+          if (joint.skin_index > -1) {
+
+            joint.bind_transform = joint.bind_transform || raw.math.dquat();
+            joint.joint_transform = joint.joint_transform || raw.math.dquat();
+
+
+            if (j.bind_pos && j.bind_pos.length === 16) {
+              joint.set_bind_pos = false;
+              raw.math.mat4.copy(bind_pos, j.bind_pos);
+              if (def.pre_scale) {
+                bind_pos[12] *= def.pre_scale[0];
+                bind_pos[13] *= def.pre_scale[1];
+                bind_pos[14] *= def.pre_scale[2];
+              }
+              raw.math.dquat.from_mat4(joint.bind_transform, bind_pos);
+            }
+            else {
+              joint.set_bind_pos = true;
+            }
+
+
+
+          }
+
+
+          if (j.pn !== undefined) {
+            j.pr = self[j.pn].index;
+          }
+
+
+          if (j.pr === undefined && i > 0) {
+            joint.transform.parent = self.joints[i - 1].transform;
+            joint.parent = self.joints[i - 1];
+          }
+          else if (j.pr > -1) {
+            joint.transform.parent = self.joints[j.pr].transform;
+            joint.parent = self.joints[j.pr];
+
+          }
+
+          joint.index = self.joints.length;
+          self[joint.name] = joint;
+          self.joints[self.joints.length] = joint;
+
+          if (joint.skin_index > -1) {
+            self.skinned_joints[joint.skin_index] = joint;
+          }
+
+        }, this);
+
+        if (def.ik) {
+          self = this;
+          if (def.ik.effectors) {
+            for (t in def.ik.effectors) {
+              this.ik_effectors[t] = def.ik.effectors[t];
+            }
+          }
+          if (def.ik.chains) {
+            def.ik.chains.forEach(function (ch) {
+              self.create_ik_chain(ch);
+            });
+          }
+        }
+
+        this.joints[0].transform.parent = entity.transform;
+
+        this.version = 0;
+        this.needs_update = 0;
+        this.entity = entity;
+        this.initialized = false;
+
       }
-      if (!renderer.pickables_pass && !trans[3]) {
-        continue;
-      } 
+    })(proto.create);
 
+    proto.add_joint = function (j) {
+      joint = this.ecs.create_entity({
+        components: {
+          'transform': {
+            position: j.position || j.pos,
+            rotation: j.rotation || j.rot,
+            scale: j.scale,
+            scaleable: false,
+          },
+        }
+      });
 
-      renderer.set_picking_color_id(trans[2]);
-      if (mesh.active_picking_color_id === trans[2]) {
-        u_marker_color[1] = 0.5;
+      if (j.eular) {
+        raw.math.quat.rotate_eular(joint.transform.rotation, j.eular[0], j.eular[1], j.eular[2]);
       }
-      else {
-        u_marker_color[1] = 0;
+
+      raw.assign(joint, {
+        name: j.name || ('joint' + i), length: 0, parent: null
+      });
+
+      if (j.skin_index !== undefined) joint.skin_index = j.skin_index;
+      if (joint.skin_index === undefined) joint.skin_index = -1;
+
+      if (joint.skin_index > -1) {
+        joint.bind_transform = joint.bind_transform || raw.math.dquat();
+        joint.joint_transform = joint.joint_transform || raw.math.dquat();
+        joint.set_bind_pos = true;
       }
-      
-      shader.set_uniform("u_marker_color", u_marker_color);
-      
-      shader.set_uniform("u_trans_position", trans[0].position_world);
-      shader.set_uniform("u_trans_size", trans[1]);
-      renderer.gl.drawElements(4, geo.num_items, 5125, 0);
-    }  
+      joint.transform.bind_pos = raw.math.vec3();
+      joint.transform.bind_rot = raw.math.quat();
+      if (j.pn !== undefined) {
+        j.pr = this[j.pn].index;
+      }
 
-    renderer.gl.enable(2929);
-    //mesh.active_picking_color_id = 0;
-   
-  };
+      if (j.pr === undefined && i > 0) {
+        joint.transform.parent = this.joints[i - 1].transform;
+        joint.parent = this.joints[i - 1];
+      }
+      else if (j.pr > -1) {
+        joint.transform.parent = this.joints[j.pr].transform;
+        joint.parent = this.joints[j.pr];
 
-  proto.update_bounds = function (mat) { };
-  proto.add = function (trans, size, show_tracker) {
-    show_tracker = show_tracker || false
-    if (trans.position_world) {
-      this.transforms.push([trans, size, -1, show_tracker]);
-    }
-    else {
-      this.transforms.push([{ position_world: trans }, size, -1, show_tracker]);
-    }
+      }
 
-  }
+      joint.index = this.joints.length;
+      this[joint.name] = joint;
+      this.joints[this.joints.length] = joint;
 
+      if (joint.skin_index > -1) {
+        this.skinned_joints[joint.skin_index] = joint;
+      }
 
-  var pos = [0, 0, 0],inv_rot=[0,0,0,0];
-  proto.drag_item = function (picking_color_id, drag_dir, drag_mag) {    
-    this.active_picking_color_id = 0;
-    this.active_item = null;
-    for (i = 0; i < this.transforms.length; i++) {
-      trans = this.transforms[i];
-      if (trans[2] === picking_color_id) {
-        this.active_picking_color_id = picking_color_id;
-        raw.math.vec3.scale(pos, drag_dir, drag_mag);
-        if (trans[0].rotation_world) {
-          raw.math.quat.invert(inv_rot, trans[0].rotation_world);
-          raw.math.vec3.transform_quat(pos, pos, inv_rot);
-          raw.math.vec3.add(trans[0].position, trans[0].position, pos);
-          trans[0].require_update = 1;
+      return joint;
+    };
+    proto.create_ik_chain = function (ch) {
+      self = this;
+      ik_chain = {
+        pole: null, needs_update: true, pole_force: 0,
+        root_pos: [0, 0, 0],
+        effector: null, joints: [], iterations: ch.iterations || 10
+      };
+
+      if (ch.pole) {
+        if (raw.is_string(ch.pole)) {
+          ik_chain.pole = self.ik_effectors[ch.pole];
         }
         else {
-          raw.math.vec3.add(trans[0].position_world, trans[0].position_world, pos);
+          ik_chain.pole = ch.pole;
         }
-        
-        this.active_item = trans[0];
+        ik_chain.pole_force = ch.pole_force || 0.1;
+      }
+
+      if (ch.effector) {
+        if (raw.is_string(ch.effector)) {
+          ik_chain.effector = self.ik_effectors[ch.effector];
+        }
+        else {
+          ik_chain.effector = ch.effector;
+        }
+      }
+
+
+      ik_chain.enabled = ch.enabled === undefined ? true : ch.enabled;
+      ik_chain.continuous = ch.continuous;
+      if (!ch.joints) {
+        this.joints.forEach(function (joint) {
+          if (joint.skin_index > -1) {
+            joint.ik_rotate = joint.ik_rotate || raw.math.quat();
+            ik_chain.joints.push(joint);
+          }
+
+        });
+      }
+      else {
+        ch.joints.forEach(function (j, i) {
+          joint = self[j];
+          if (i === 0) {
+            if (!joint.ik_rotate) {
+              joint.ik_rotate = [0, 0, 0, 0];
+              joint.ik_pos = [0, 0, 0];
+              joint.ik_count = 0;
+              joint.ik_chain_updated = false;
+              self.ik_roots[joint.index] = joint;
+            }
+            else {
+              joint.ik_count++;
+            }
+
+          }
+
+          ik_chain.joints.push(joint);
+        });
+      }
+      this.ik_chains[this.ik_chains.length] = ik_chain;
+
+      ik_chain.root = ik_chain.joints[0];
+
+      return ik_chain;
+    }
+
+
+    function skeleton(def) {
+      _super.apply(this);
+      this.skinned_joints = [];
+      this.joints = [];
+      this.ik_chains = [];
+      this.ik_effectors = {};
+      this.ik_joints = [];
+      this.ik_roots = [];
+      this.transforms = [];
+      this.ik_trackers = [];
+
+    }
+
+
+    skeleton.validate = function (component) {
+      component.ecs.use_system('skeleton_system');
+    };
+
+
+    return skeleton;
+
+  }, raw.ecs.component));
+
+
+  raw.ecs.register_system("skeleton_system", raw.define(function (proto, _super) {
+
+    proto.resolve_ik_chain = (function () {
+      var vec3 = raw.math.vec3, quat = raw.math.quat;
+      var i = 0, ln = 0, j = null, p = null, posi = [], polars = [], roti = [], lp = null,
+        v1 = [0, 0, 0], v2 = [0, 0, 0], v3 = [0, 0, 0];
+      for (i = 0; i < 10; i++) {
+        posi[i] = [0, 0, 0];
+        polars[i] = [0, 0, 0];
+        roti[i] = [0, 0, 0, 1];
+      }
+
+      var q1 = raw.math.quat(), q2 = raw.math.quat(), q3 = raw.math.quat();
+      var thr = 0.01, ln2 = 0, ter = 0, tg = null;
+      var clen = 0, k = 0, thg = thr * thr;
+      var cv = raw.math.vec3(), cvs = [0, 0, 0], cvl = 0, k = 0, cvn = 0;
+
+      var limit_joint = function (j, limit) {
+        if (limit !== undefined) {
+
+          if (i > 1) {
+            raw.math.vec3.subtract(v2, posi[i - 1], posi[i - 2]);
+            raw.math.vec3.normalize(v2, v2);
+            raw.math.vec3.scale(v2, v2, j.length);
+            raw.math.vec3.add(v2, v2, posi[i - 1]);
+          }
+          else {
+
+            raw.math.vec3.subtract(v2, posi[i - 1], j.parent.transform.parent.position_world);
+            raw.math.vec3.normalize(v2, v2);
+            raw.math.vec3.scale(v2, v2, j.length);
+            raw.math.vec3.add(v2, v2, posi[i - 1]);
+          }
+
+
+          raw.math.vec3.subtract(cv, posi[i], v2);
+          ln = Math.sqrt(cv[0] * cv[0] + cv[2] * cv[2]);
+          raw.math.vec3.subtract(cv, posi[i], v2);
+          cvl = Math.atan2(cv[0], cv[2]);
+          cvn = Math.sign(cvl);
+          if (j.limit[0] === j.limit[1]) {
+            v3[0] = (Math.cos(j.limit[0]) * ln) * cvn;
+            v3[2] = (Math.sin(j.limit[0]) * ln) * cvn;
+          }
+          else {
+            cvl = Math.max(Math.min(cvl, j.limit[0]), j.limit[0]);
+            v3[0] = (Math.cos(cvl) * ln);
+            v3[2] = (Math.sin(cvl) * ln);
+          }
+          v3[1] = posi[i][1];
+
+          posi[i][0] = v2[0] + v3[0];
+          //posi[i][1] = posi[i - 1][1] + v3[1];
+          posi[i][2] = v2[2] + v3[2];
+          //raw.math.vec3.add(posi[i],v2, v3);
+
+          /*
+          
+          raw.math.vec3.subtract(v3, posi[i], v2);
+          raw.math.vec3.to_polar(v1, v3);
+          
+          v1[1] = Math.max(Math.min(v1[1], limit[3]), limit[2]);
+          
+  
+          raw.math.vec3.from_polar(v3, v1[0], v1[1], v1[2]);
+          raw.math.vec3.add(posi[i], v2, v3);
+          */
+          raw.math.vec3.subtract(cv, posi[i], v1);
+          ln = Math.sqrt(cv[0] * cv[0] + cv[1] * cv[1] + cv[2] * cv[2]);
+          if (ln > j.limit[2]) {
+            cvl = j.limit[2] - ln;
+            raw.math.vec3.subtract(cv, posi[i], v1);
+            raw.math.vec3.normalize(cv, cv);
+            raw.math.vec3.scale(v3, cv, cvl);
+            raw.math.vec3.add(posi[i], posi[i], v3);
+            if (i > 1) {
+              // raw.math.vec3.subtract(posi[i - 1], posi[i - 1], v3);
+            }
+          }
+
+        }
+        if (j.limit2 !== undefined) {
+
+          raw.math.vec3.subtract(v3, posi[i], posi[i - 1]);
+          raw.math.vec3.copy(v2, v3);
+          raw.math.vec3.to_polar(v1, v3);
+          v1[0] = Math.max(Math.min(v1[1], limit[1]), limit[0]);
+          //v1[1] =0- polars[i - 1][1];
+          v1[1] = Math.max(Math.min(v1[1], limit[3]), limit[2]);
+          //v1[1] -= polars[i - 1][1];
+          // v1[0] -= polars[i - 1][0];
+
+
+          raw.math.vec3.from_polar(v3, v1[0], v1[1], v1[2]);
+          raw.math.vec3.subtract(v1, v3, v2);
+          // raw.math.vec3.add(posi[i], posi[i - 1], v3);
+
+          raw.math.vec3.add(posi[i], posi[i], v1);
+          if (i > 1) {
+            // raw.math.vec3.subtract(posi[i - 1], posi[i - 1], v1);
+          }
+
+        }
+        if (j.limit2 !== undefined) {
+          if (i > 1) {
+            raw.math.vec3.subtract(v2, posi[i - 1], posi[i - 2]);
+            raw.math.vec3.normalize(v2, v2);
+            raw.math.vec3.scale(v2, v2, j.length);
+            raw.math.vec3.add(v2, v2, posi[i - 1]);
+          }
+          else {
+
+            raw.math.vec3.subtract(v2, posi[i - 1], j.parent.transform.parent.position_world);
+            raw.math.vec3.normalize(v2, v2);
+            raw.math.vec3.scale(v2, v2, j.length);
+            raw.math.vec3.add(v2, v2, posi[i - 1]);
+
+            //raw.math.vec3.normalize(v2, raw.math.V3_Y);
+            //raw.math.vec3.scale(v2, v2, j.length);
+            //raw.math.vec3.add(v2, v2, posi[i - 1]);
+          }
+
+          raw.math.vec3.copy(v1, v2);
+
+
+
+          if (j.limit[2] !== -999) {
+            raw.math.vec3.subtract(cv, posi[i], v2);
+            ln = Math.sqrt(cv[0] * cv[0] + cv[2] * cv[2]);
+            raw.math.vec3.subtract(cv, posi[i], v2);
+            cvl = Math.atan2(cv[0], cv[2]);
+            // console.log('cv' + i, cvl);
+            cvn = Math.sign(cvl);
+            if (j.limit[2] === j.limit[3]) {
+              v3[0] = (Math.cos(j.limit[2]) * ln) * cvn;
+              v3[2] = (Math.sin(j.limit[2]) * ln) * cvn;
+            }
+            else {
+              cvl = Math.max(Math.min(cvl, j.limit[3]), j.limit[2]);
+              v3[0] = (Math.cos(cvl) * ln);
+              v3[2] = (Math.sin(cvl) * ln);
+            }
+            v3[1] = posi[i][1];
+
+            cvl = Math.atan2(v3[0], v3[1]);
+            cvl = Math.max(Math.min(cvl, j.limit[5]), j.limit[4]);
+
+            //   v3[0] = (Math.cos(cvl) * ln);
+            //  v3[1] = (Math.sin(cvl) * ln);
+            //console.log('cvl', cvl*57.29577951308232);
+
+
+
+
+
+            posi[i][0] = v2[0] + v3[0];
+            //posi[i][1] = posi[i - 1][1] + v3[1];
+            posi[i][2] = v2[2] + v3[2];
+
+            raw.math.vec3.subtract(v3, posi[i], posi[i - 1]);
+            raw.math.vec3.normalize(v3, v3);
+            raw.math.quat.rotation_to(q1, raw.math.V3_Y, v3);
+            cvl = raw.math.quat.get_angle(q1);
+
+            cvl = Math.max(Math.min(cvl, j.limit[5]), j.limit[4]);
+
+            raw.math.quat.set_axis_angle(q1, q1, cvl);
+
+            raw.math.vec3.transform_quat(v3, raw.math.V3_Y, q1);
+            raw.math.vec3.normalize(v3, v3);
+            raw.math.vec3.scale_add(posi[i], posi[i - 1], v3, j.length);
+
+
+          }
+
+
+
+
+          console.log('cvl', cvl * 57.29577951308232);
+          //console.log(q1.join());
+
+
+          if (j.limit[0] > 0) {
+
+            v1[0] += j.limit[1];
+            raw.math.vec3.subtract(cv, posi[i], v1);
+            ln = Math.sqrt(cv[0] * cv[0] + cv[1] * cv[1] + cv[2] * cv[2]);
+            if (ln > j.limit[0]) {
+              cvl = j.limit[0] - ln;
+              raw.math.vec3.subtract(cv, posi[i], v1);
+              raw.math.vec3.normalize(cv, cv);
+              raw.math.vec3.scale(v3, cv, cvl);
+              raw.math.vec3.add(posi[i], posi[i], v3);
+              if (i > 1) {
+                // raw.math.vec3.subtract(posi[i - 1], posi[i - 1], v3);
+              }
+            }
+          }
+
+
+        }
+      }
+
+
+      var vn = [];
+      limit_joint = function (j, limit) {
+        if (limit !== undefined) {
+          if (i > 1) {
+            raw.math.vec3.subtract(v2, posi[i - 1], posi[i - 2]);
+            raw.math.vec3.normalize(vn, v2);
+            raw.math.vec3.scale(v2, vn, j.length);
+            raw.math.vec3.add(v2, posi[i - 1], v2);
+
+
+          }
+          else {
+            raw.math.vec3.subtract(v2, posi[i - 1], j.parent.transform.parent.position_world);
+            ln = raw.math.vec3.get_length(v2);
+            if (ln === 0) {
+              raw.math.vec3.normalize(vn, raw.math.V3_Y);
+            }
+            else {
+              raw.math.vec3.normalize(vn, v2);
+            }
+
+            raw.math.vec3.scale(v2, vn, j.length);
+            raw.math.vec3.add(v2, v2, posi[i - 1]);
+          }
+          raw.math.vec3.copy(j.v2, v2);
+          raw.math.vec3.copy(j.posi1, posi[i - 1]);
+
+
+          //raw.math.quat.rotation_to(q1, raw.math.V3_Y, vn);
+          //raw.math.vec3.transform_quat(j.v3, raw.math.V3_X, q1);
+
+          raw.math.vec3.normalize(j.v3, j.v3);
+
+          raw.math.vec3.scale_add(j.v3, posi[i - 1], j.v3, j.length);
+
+
+          raw.math.vec3.subtract(j.an, posi[i], v2);
+
+          raw.math.vec3.normalize(j.an, j.an);
+
+          //raw.math.vec3.scale_add(j.an, j.v2, j.an, j.length);
+
+          if (j.limit[0] > 0) {
+            raw.math.vec3.subtract(cv, posi[i], v2);
+
+            ln = Math.sqrt(cv[0] * cv[0] + cv[1] * cv[1] + cv[2] * cv[2]);
+            if (ln > j.limit[0]) {
+              raw.math.vec3.subtract(cv, posi[i], v2);
+              raw.math.vec3.normalize(cv, cv);
+              raw.math.vec3.scale_add(cv, v2, cv, j.limit[0]);
+              raw.math.vec3.subtract(cv, cv, posi[i - 1]);
+              raw.math.vec3.normalize(cv, cv);
+              raw.math.vec3.scale_add(posi[i], posi[i - 1], cv, j.length);
+            }
+          }
+
+          if (j.limit[1] !== -999) {
+            raw.math.vec3.subtract(v3, posi[i], posi[i - 1]);
+            //raw.math.vec3.normalize(cv, j.parent.an);
+            raw.math.vec3.scale(cv, j.parent.an, j.length);
+            raw.math.vec3.cross(j.an, cv, v2);
+            raw.math.vec3.normalize(j.an, j.an);
+            //raw.math.vec3.scale_add(j.an, posi[i - 1], j.an, j.length);
+            cvs = raw.math.vec3.dot(j.an, v3);
+
+            raw.math.vec3.scale_add(posi[i], posi[i], j.an, -cvs)
+            //raw.math.vec3.scale_add(posi[i - 1], posi[i - 1], j.an, -cvs);
+
+            // cv[1] = v3[1];
+            raw.math.vec3.normalize(cv, cv);
+            //raw.math.vec3.scale_add(posi[i], posi[i - 1], cv, j.length);
+
+            /*
+              raw.math.vec3.subtract(cv, posi[i], posi[i - 1]);
+              raw.math.vec3.to_polar(v3, cv);
+              raw.math.vec3.from_polar(cv,
+                Math.max(Math.min(v3[0], j.limit[2]), j.limit[1]),    v3[1], v3[2]);
+              //raw.math.vec3.add(posi[i], posi[i - 1], cv);
+              raw.math.vec3.normalize(cv, cv);
+              raw.math.vec3.scale_add(posi[i], posi[i - 1], cv, j.length);
+              */
+          }
+
+
+        }
+        return
+        if (limit !== undefined) {
+          raw.math.vec3.subtract(v2, posi[i], posi[i - 1]);
+          ln = Math.sqrt(v2[0] * v2[0] + v2[1] * v2[1] + v2[2] * v2[2]);
+          raw.math.vec3.set(v3, 0, ln, 0);
+          raw.math.vec3.subtract(cv, v2, v3);
+          ln = Math.sqrt(cv[0] * cv[0] + cv[1] * cv[1] + cv[2] * cv[2]);
+
+          if (ln > j.limit[0]) {
+            cvl = j.limit[0] - ln;
+            raw.math.vec3.normalize(cv, cv);
+            raw.math.vec3.scale(v3, cv, cvl);
+            raw.math.vec3.add(posi[i], posi[i], v3);
+            if (i > 0) {
+              raw.math.vec3.subtract(posi[i - 1], posi[i - 1], v3);
+            }
+          }
+
+        }
+
+        return;
+
+
+      }
+
+      function get_eular(e, vc1, vc2) {
+        vec3.cross(v1, vc1, vc2);
+        ln = vec3.dot(vc1, vc2);
+
+
+      }
+
+      return function (chain) {
+        tg = chain.effector.position_world;
+        ch = chain.joints;
+        clen = ch.length - 1;
+
+
+
+
+        if (!chain.needs_update) {
+          raw.math.vec3.subtract(v1, ch[clen].transform.position_world, tg);
+          ln = (v1[0] * v1[0] + v1[1] * v1[1] + v1[2] * v1[2]);
+
+          chain._ln = ln;
+          chain._thg = thg;
+          if (ln < thg) {
+            return false;
+          }
+        }
+        chain.needs_update = false;
+
+        posi[clen][0] = tg[0];
+        posi[clen][1] = tg[1];
+        posi[clen][2] = tg[2];
+        raw.math.vec3.subtract(v1, posi[clen], ch[0].transform.position_world);
+
+        ln = 0;
+        for (i = 0; i <= clen; i++)
+          ln += ch[i].length;
+
+        ln2 = Math.abs(v1[0] * v1[0] + v1[1] * v1[1] + v1[2] * v1[2]);
+        ln2 = raw.math.vec3.get_length(v1);
+
+
+        if (ln2 > ln && false) {
+          j = ch[0];
+          raw.math.vec3.normalize(v1, v1);
+
+          if (j.transform.parent !== null) {
+            raw.math.quat.rotation_to(q1, raw.math.V3_Y, v1);
+            raw.math.quat.invert(q2, j.transform.parent.rotation_world);
+            raw.math.quat.multiply(j.ik_rotate, q2, q1);
+          }
+          else raw.math.quat.rotation_to(ch[0].ik_rotate, raw.math.V3_Y, v1);
+          for (i = 1; i <= clen; i++) {
+            raw.math.quat.identity(ch[i].ik_rotate);
+          }
+
+          return true;
+        }
+
+
+        for (i = 1; i < clen; i++) {
+          j = ch[i];
+          posi[i][0] = j.transform.position_world[0];
+          posi[i][1] = j.transform.position_world[1];
+          posi[i][2] = j.transform.position_world[2];
+
+
+        }
+
+        ter = 0;
+
+        while (ter < 10) {
+
+
+
+
+          posi[clen][0] = tg[0];
+          posi[clen][1] = tg[1];
+          posi[clen][2] = tg[2];
+
+          if (ter > 0) {
+
+          }
+
+
+          i = clen - 1;
+          cvl = -1000;
+          while (i > 0) {
+            j = ch[i];
+            raw.math.vec3.subtract(v1, posi[i], posi[i + 1]);
+            raw.math.vec3.normalize(v1, v1);
+            raw.math.vec3.scale(v2, v1, ch[i + 1].length);
+            raw.math.vec3.to_polar(polars[i], v2);
+            raw.math.vec3.add(posi[i], posi[i + 1], v2);
+
+
+
+            i--;
+          }
+
+
+          for (i = clen - 1; i > 0; i--) {
+            // limit_joint(ch[i], ch[i].limit);
+          }
+
+          for (i = 1; i < clen + 1; i++) {
+            //limit_joint(ch[i], ch[i].limit);
+          }
+
+          lp = ch[0].transform.position_world;
+          i = 1;
+          posi[0][0] = lp[0];
+          posi[0][1] = lp[1];
+          posi[0][2] = lp[2];
+
+          while (i <= clen) {
+            j = ch[i];
+            raw.math.vec3.subtract(v1, posi[i], posi[i - 1]);
+            raw.math.vec3.normalize(v1, v1);
+            raw.math.vec3.scale(v2, v1, ch[i].length);
+            raw.math.vec3.to_polar(polars[i], v2);
+            raw.math.vec3.add(posi[i], lp, v2);
+
+            //limit_joint(ch[i], ch[i].limit);
+
+            lp = posi[i];
+            i++;
+          }
+
+
+
+          for (i = clen - 1; i > 0; i--) {
+            //limit_joint(ch[i], ch[i].limit);
+          }
+
+          v1[0] = posi[clen][0] - tg[0];
+          v1[1] = posi[clen][1] - tg[1];
+          v1[2] = posi[clen][2] - tg[2];
+
+          ln = (v1[0] * v1[0] + v1[1] * v1[1] + v1[2] * v1[2]);
+          chain._ln = ln;
+          chain._thg = thg;
+          if (ter > 0 && ln < thg) {
+            break;
+          }
+
+
+
+
+          ter++;
+        }
+
+        i = 0;
+        if (ch[0].transform.parent !== null) {
+          raw.math.quat.copy(roti[0], ch[0].transform.parent.rotation_world);
+        }
+        else {
+          raw.math.quat.identity(roti[0]);
+        }
+        while (i < clen) {
+          j = ch[i];
+          vec3.subtract(v1, posi[i + 1], posi[i]);
+
+
+
+
+          /*
+          vec3.to_polar(v2, v1);
+          quat.set_axis_angle(q1, raw.math.V3_X, v2[0]);        
+          quat.set_axis_angle(q2, raw.math.V3_Z, -v2[1]);        
+          quat.multiply(q1, q2, q1);
+          quat.normalize(q1, q1);
+          */
+          //        
+          //quat.set_axis_angle(q1, v2, (vec3.dot(posi[i], posi[i + 1])));        
+          //quat.rotation_to(q1, raw.math.V3_Y, v1);
+          //quat.aim(q1, posi[i], posi[i + 1]);
+
+          //vec3.cross(v3, posi[i + 1], posi[i]);
+          //raw.math.vec3.normalize(v3, v3);        
+
+          //vec3.normalize(v1, posi[i]);        
+          //vec3.normalize(v2, posi[i + 1]);        
+
+          // quat.aim(q1, posi[i], posi[i + 1]);
+          //
+          vec3.subtract(v1, posi[i + 1], posi[i]);
+          vec3.normalize(v1, v1);
+          vec3.cross(v2, v1, raw.math.V3_Y);
+          vec3.normalize(v2, v2);
+          //quat.aim(q1, v2, v1);
+          quat.rotation_to(q1, v2, v1);
+          //quat.aim(q1,  v2,v1);
+          //quat.set_axis_angle(q1, v3, Math.acos(vec3.dot(v1, v2)));
+
+
+          //Vector v = (this->cross(vector)).normalize();
+          //return Quaternion(v, acos(a.dot(b)));
+
+          // quat.aim(q1, raw.math.V3_Y, v1);
+
+          //  raw.math.quat.normalize(q1, q1);
+          raw.math.quat.invert(q2, roti[0]);
+          raw.math.quat.multiply(q1, q2, q1);
+
+          raw.math.quat.copy(j.transform.rotation, q1);
+
+
+
+          raw.math.quat.multiply(roti[0], roti[0], j.transform.rotation);
+
+          j.transform.require_update = 1;
+          i++;
+        }
+
         return true;
+        /*
+        quaternion q;
+        vector3 c = cross(v1, v2);
+        q.v = c;
+        if (vectors are known to be unit length ) {
+          q.w = 1 + dot(v1, v2);
+    } else {
+        q.w = sqrt(v1.length_squared() * v2.length_squared()) + dot(v1, v2);
+    } q.normalize(); return q;
+    */
+
+
+        i = 0;
+        while (i < clen) {
+          j = ch[i];
+          raw.math.vec3.subtract(v1, posi[i + 1], posi[i]);
+          raw.math.vec3.normalize(v1, v1);
+          if (i > 0) {
+            raw.math.quat.rotation_to(q1, raw.math.V3_Y, v1);
+            raw.math.quat.invert(q2, roti[i - 1]);
+            raw.math.quat.multiply(j.ik_rotate, q2, q1);
+            raw.math.quat.multiply(roti[i], roti[i - 1], j.ik_rotate);
+          }
+          else {
+            if (j.transform.parent !== null) {
+              raw.math.quat.rotation_to(q1, raw.math.V3_Y, v1);
+              raw.math.quat.invert(q2, j.transform.parent.rotation_world);
+              raw.math.quat.multiply(j.ik_rotate, q2, q1);
+              raw.math.quat.multiply(roti[i], j.transform.parent.rotation_world, j.ik_rotate);
+            }
+            else {
+              raw.math.quat.rotation_to(j.ik_rotate, raw.math.V3_Y, v1);
+              raw.math.quat.copy(roti[i], j.ik_rotate);
+            }
+
+          }
+          i++;
+        }
+
+        return true;
+
+      }
+
+      return function (chain) {
+        tg = chain.effector.position_world;
+        ch = chain.joints;
+        clen = ch.length - 1;
+
+
+
+
+        if (!chain.needs_update) {
+          raw.math.vec3.subtract(v1, ch[clen].transform.position_world, tg);
+          ln = (v1[0] * v1[0] + v1[1] * v1[1] + v1[2] * v1[2]);
+
+          chain._ln = ln;
+          chain._thg = thg;
+          if (ln < thg) {
+            return false;
+          }
+        }
+        chain.needs_update = false;
+
+        posi[clen][0] = tg[0];
+        posi[clen][1] = tg[1];
+        posi[clen][2] = tg[2];
+        raw.math.vec3.subtract(v1, posi[clen], ch[0].transform.position_world);
+
+        ln = 0;
+        for (i = 0; i <= clen; i++)
+          ln += ch[i].length;
+
+        ln2 = Math.abs(v1[0] * v1[0] + v1[1] * v1[1] + v1[2] * v1[2]);
+        ln2 = raw.math.vec3.get_length(v1);
+
+
+        if (ln2 > ln && false) {
+          j = ch[0];
+          raw.math.vec3.normalize(v1, v1);
+
+          if (j.transform.parent !== null) {
+            raw.math.quat.rotation_to(q1, raw.math.V3_Y, v1);
+            raw.math.quat.invert(q2, j.transform.parent.rotation_world);
+            raw.math.quat.multiply(j.ik_rotate, q2, q1);
+          }
+          else raw.math.quat.rotation_to(ch[0].ik_rotate, raw.math.V3_Y, v1);
+          for (i = 1; i <= clen; i++) {
+            raw.math.quat.identity(ch[i].ik_rotate);
+          }
+
+          return true;
+        }
+
+
+        for (i = 1; i < clen; i++) {
+          j = ch[i];
+          posi[i][0] = j.transform.position_world[0];
+          posi[i][1] = j.transform.position_world[1];
+          posi[i][2] = j.transform.position_world[2];
+
+
+        }
+
+        ter = 0;
+
+        while (ter < 3) {
+
+
+
+
+          posi[clen][0] = tg[0];
+          posi[clen][1] = tg[1];
+          posi[clen][2] = tg[2];
+
+          i = clen - 1;
+          cvl = -1000;
+          while (i > 0) {
+            j = ch[i];
+            raw.math.vec3.subtract(v1, posi[i], posi[i + 1]);
+            raw.math.vec3.normalize(v1, v1);
+            raw.math.vec3.scale(v2, v1, ch[i + 1].length);
+            raw.math.vec3.to_polar(polars[i], v2);
+            raw.math.vec3.add(posi[i], posi[i + 1], v2);
+            i--;
+          }
+
+
+
+
+
+          lp = ch[0].transform.position_world;
+          i = 1;
+          posi[0][0] = lp[0];
+          posi[0][1] = lp[1];
+          posi[0][2] = lp[2];
+
+          while (i <= clen) {
+            j = ch[i];
+            raw.math.vec3.subtract(v1, posi[i], posi[i - 1]);
+            raw.math.vec3.normalize(v1, v1);
+            raw.math.vec3.scale(v2, v1, ch[i].length);
+            raw.math.vec3.to_polar(polars[i], v2);
+            raw.math.vec3.add(posi[i], lp, v2);
+
+            //limit_joint(ch[i], ch[i].limit);
+
+            lp = posi[i];
+            i++;
+          }
+
+          for (i = clen - 1; i > 0; i--) {
+            //limit_joint(ch[i], ch[i].limit);
+          }
+
+          i = 0;
+          while (i < clen) {
+            j = ch[i];
+            raw.math.vec3.subtract(v1, posi[i + 1], posi[i]);
+            raw.math.vec3.normalize(v1, v1);
+            raw.math.quat.rotation_to(q1, raw.math.V3_Y, v1);
+
+            if (j.limit2 !== undefined) {
+              q1[2] = 0;
+              //q1[3] = Math.max(Math.min(q1[3], 0.2), -0.2);
+              raw.math.quat.normalize(q1, q1);
+              // raw.math.quat.identity(q1);
+            }
+
+            if (j.limit) {
+              raw.math.vec3.set(v3, 0.5, 1, 0);
+              //raw.math.vec3.transform_quat(v3, raw.math.V3_X, q1);
+
+              raw.math.vec3.transform_quat(v2, raw.math.V3_Y, q1);
+              cvn = raw.math.vec3.distance(v3, raw.math.V3_Y);
+              raw.math.vec3.subtract(v2, v2, raw.math.V3_Y);
+              ln = raw.math.vec3.get_length(v2);
+
+              if (ln > cvn) {
+                raw.math.vec3.normalize(v2, v2);
+                raw.math.vec3.scale(v2, v2, cvn);
+                raw.math.vec3.normalize(v3, v3);
+                raw.math.quat.rotation_to(q1, raw.math.V3_Y, v2);
+                /*
+                if (i > 0) {
+                  raw.math.quat.invert(q2, roti[i - 1]);
+                  raw.math.quat.multiply(j.ik_rotate, q2, q1);
+                  raw.math.quat.multiply(roti[i], roti[i - 1], j.ik_rotate);
+                }
+                else {
+                  raw.math.quat.copy(roti[i], q1);
+                  raw.math.quat.copy(j.ik_rotate, q1);
+                }
+                */
+              }
+            }
+
+            if (i > 0) {
+              raw.math.quat.invert(q2, roti[i - 1]);
+              raw.math.quat.multiply(j.ik_rotate, q2, q1);
+              raw.math.quat.multiply(roti[i], roti[i - 1], j.ik_rotate);
+            }
+            else {
+              if (j.transform.parent !== null) {
+                raw.math.quat.invert(q2, j.transform.parent.rotation_world);
+                raw.math.quat.multiply(j.ik_rotate, q2, q1);
+                raw.math.quat.multiply(roti[i], j.transform.parent.rotation_world, j.ik_rotate);
+              }
+              else {
+                raw.math.quat.copy(roti[i], q1);
+                raw.math.quat.copy(j.ik_rotate, q1);
+              }
+            }
+
+
+
+            if (j.limit2) {
+
+              raw.math.vec3.transform_quatx(v2, 0, 1, 0, roti[i]);
+              raw.math.vec3.transform_quatx(v3, 0, 1, 0, roti[i - 1]);
+              raw.math.quat.rotation_to(q2, v2, v3);
+              raw.math.quat.multiply(j.ik_rotate, j.ik_rotate, q2);
+              raw.math.quat.multiply(roti[i], roti[i - 1], j.ik_rotate);
+              //vec3 currentHinge = joint.rotation * axis;
+              //vec3 desiredHinge = parent.rotation * axis;
+              //mChain[i].rotation = mChain[i].rotation *fromToRotation(currentHinge,desiredHinge);
+            }
+
+            i++;
+          }
+
+          for (i = clen; i > 0; i--) {
+            raw.math.vec3.subtract(posi[i], posi[i], posi[i - 1]);
+          }
+
+          for (i = 1; i < clen + 1; i++) {
+            j = ch[i];
+            //raw.math.vec3.subtract(v1, posi[i], posi[i - 1]);
+            raw.math.vec3.transform_quat(v3, j.transform.position, roti[i - 1]);
+            raw.math.vec3.add(posi[i], posi[i - 1], v3);
+          }
+
+
+
+          v1[0] = posi[clen][0] - tg[0];
+          v1[1] = posi[clen][1] - tg[1];
+          v1[2] = posi[clen][2] - tg[2];
+
+
+          ln = (v1[0] * v1[0] + v1[1] * v1[1] + v1[2] * v1[2]);
+          chain._ln = ln;
+          chain._thg = thg;
+          if (ter > 0 && ln < thg) {
+            break;
+          }
+
+
+
+
+          ter++;
+        }
+
+        return true;
+        for (i = clen - 1; i > 0; i--) {
+          // limit_joint(ch[i], ch[i].limit);
+        }
+
+
+        i = 0;
+        while (i < clen) {
+          j = ch[i];
+          raw.math.vec3.subtract(v1, posi[i + 1], posi[i]);
+
+          raw.math.vec3.to_polar(v3, v1);
+
+          raw.math.vec3.normalize(v1, v1);
+          raw.math.quat.rotation_to(q1, raw.math.V3_Y, v1);
+
+          /*
+          raw.math.quat.set_axis_anglex(q2, 0, 1, 0, v3[0]);
+          raw.math.quat.set_axis_anglex(q3, 1, 0, 0, v3[1]);
+  
+          raw.math.quat.multiply(q1, q2, q3);
+  
+          raw.math.quat.normalize(q1, q1);
+          */
+
+
+
+
+          if (i > 0) {
+
+            raw.math.quat.invert(q2, roti[i - 1]);
+            raw.math.quat.multiply(j.ik_rotate, q2, q1);
+            raw.math.quat.multiply(roti[i], roti[i - 1], j.ik_rotate);
+          }
+          else {
+            if (j.transform.parent !== null) {
+              raw.math.quat.invert(q2, j.transform.parent.rotation_world);
+              raw.math.quat.multiply(j.ik_rotate, q2, q1);
+              raw.math.quat.multiply(roti[i], j.transform.parent.rotation_world, j.ik_rotate);
+            }
+            else {
+              raw.math.quat.copy(roti[i], j.ik_rotate);
+              raw.math.quat.copy(j.ik_rotate, q1);
+            }
+
+          }
+          i++;
+        }
+
+        return true;
+
+        i = 0;
+        while (i < clen) {
+          j = ch[i];
+          raw.math.vec3.subtract(v1, posi[i + 1], posi[i]);
+          raw.math.vec3.normalize(v1, v1);
+          if (i > 0) {
+            raw.math.quat.rotation_to(q1, raw.math.V3_Y, v1);
+            raw.math.quat.invert(q2, roti[i - 1]);
+            raw.math.quat.multiply(j.ik_rotate, q2, q1);
+            raw.math.quat.multiply(roti[i], roti[i - 1], j.ik_rotate);
+          }
+          else {
+            if (j.transform.parent !== null) {
+              raw.math.quat.rotation_to(q1, raw.math.V3_Y, v1);
+              raw.math.quat.invert(q2, j.transform.parent.rotation_world);
+              raw.math.quat.multiply(j.ik_rotate, q2, q1);
+              raw.math.quat.multiply(roti[i], j.transform.parent.rotation_world, j.ik_rotate);
+            }
+            else {
+              raw.math.quat.rotation_to(j.ik_rotate, raw.math.V3_Y, v1);
+              raw.math.quat.copy(roti[i], j.ik_rotate);
+            }
+
+          }
+          i++;
+        }
+
+        return true;
+
+      }
+
+
+    })();
+    var skeleton = null, joints_changed = false, temp_dquat = [0, 0, 0, 1];
+    var ik = 0, k = 0, v1 = [0, 0, 0], v2 = [0, 0, 0];
+
+
+    proto.resolve_ik = function (skeleton) {
+      for (ik = 0; ik < skeleton.ik_chains.length; ik++) {
+        ik_chain = skeleton.ik_chains[ik];
+        if (!ik_chain.enabled) continue;
+        if (this.resolve_ik_chain(ik_chain, 10)) {
+          ik_chain.root.ik_chain_updated = true;
+
+          this.ecs.systems['transform_system'].process(skeleton.transforms, 1);
+        }
+
+      }
+
+    }
+
+    proto.step = function () {
+      this.skeleton_display_mesh.DP.clear();
+      this.display_skeletons.length = 0;
+      while ((skeleton = this.ecs.iterate_entities("skeleton")) !== null) {
+        if (skeleton.skeleton.display) {
+          this.display_skeletons[this.display_skeletons.length] = skeleton;
+        }
+        trans = skeleton.transform;
+        skeleton = skeleton.skeleton;
+        if (!skeleton.initialized) {
+          this.initialize_skeleton(skeleton);
+        }
+
+
+        this.resolve_ik(skeleton);
+
+
+
+
+
+      }
+
+      while ((skeleton = this.ecs.iterate_entities("skeleton")) !== null) {
+
+        trans = skeleton.transform;
+        skeleton = skeleton.skeleton;
+        joints_changed = false;
+        for (i = 0; i < skeleton.skinned_joints.length; i++) {
+          joint = skeleton.skinned_joints[i];
+          if (joint && joint.transform.require_update !== 0) {
+            raw.math.dquat.from_quat_pos(temp_dquat, joint.transform.rotation_world, joint.transform.position_world);
+            raw.math.dquat.multiply(joint.joint_transform, temp_dquat, joint.bind_transform);
+            joints_changed = true;
+          }
+        }
+        if (joints_changed) skeleton.version += 0.000001;
+      }
+
+
+    };
+    var i = 0, v1 = raw.math.vec3();
+
+    proto.initialize_skeleton = function (skeleton) {
+      if (skeleton.initialized) return;
+      //this.set_zero_pos(skeleton);
+
+      this.set_bind_pos(skeleton);
+
+
+      skeleton.initialized = true;
+    }
+
+    proto.set_bind_pos = function (skeleton) {
+      for (i = 0; i < skeleton.joints.length; i++) {
+        joint = skeleton.joints[i];
+
+        skeleton.transforms[skeleton.transforms.length] = joint.transform;
+
+        if (joint.skin_index > -1 && joint.set_bind_pos) {
+          raw.math.dquat.from_quat_pos(joint.bind_transform,
+            joint.transform.rotation_world, joint.transform.position_world);
+          raw.math.dquat.invert(joint.bind_transform, joint.bind_transform);
+        }
+
+
+        if (joint.bind_transform) {
+          //   raw.math.vec3.copy(joint.transform.bind_pos, joint.transform.position_world);
+          // raw.math.quat.copy(joint.transform.bind_rot, joint.transform.rotation);
+        }
+
+
+        if (joint.transform.parent !== null) {
+          raw.math.vec3.subtract(v1, joint.transform.position_world, joint.transform.parent.position_world);
+          joint.length = raw.math.vec3.get_length(v1);
+        }
+        else {
+          joint.length = raw.math.vec3.get_length(joint.transform.position_world);
+        }
+
+      }
+    };
+
+    proto.set_zero_pos = function (skeleton) {
+      for (i = 0; i < skeleton.joints.length; i++) {
+        joint = skeleton.joints[i];
+        joint.set_bind_pos = true;
+        if (joint.transform.parent !== null) {
+          raw.math.vec3.subtract(joint.transform.position,
+            joint.transform.position_world, joint.transform.parent.position_world);
+          raw.math.quat.identity(joint.transform.rotation);
+        }
+      }
+    };
+
+    proto.validate = function (ecs) {
+      ecs.use_component("render_item");
+      this.priority = ecs.use_system('transform_system').priority + 100;
+      this.setup_skeleton_display(ecs);
+    };
+
+    proto.setup_skeleton_display = (function () {
+      var i = 0, k = 0, joint = null;
+      var geo = raw.geometry.cube({ width: 2, depth: 2 });
+      for (i = 0; i < geo.attributes.a_position_rw.data.length; i += 3) {
+        if (geo.attributes.a_position_rw.data[i + 1] > 0.3) {
+          geo.attributes.a_position_rw.data[i] *= 0.35;
+          geo.attributes.a_position_rw.data[i + 2] *= 0.35;
+        }
+        else {
+          if (geo.attributes.a_position_rw.data[i] > 0) {
+            // geo.attributes.a_position_rw.data[i] *= 4;
+          }
+        }
+      }
+      geo.scale_position_rotation(0.1, 1, 0.1, 0, 0.5, 0, 0, 0, 0);
+      var mat = new raw.shading.shaded_material({ ambient: [0.5, 0.5, 0.5] });
+      mat.flags += 8;
+       var axis_geo = raw.geometry.create({
+        vertices: new Float32Array([
+          0, 0, 0, 0.5, 0, 0,
+          0, 0, 0, 0, 1, 0,
+          0, 0, 0, 0, 0, 0.5
+        ]),
+        colors: new Float32Array([
+          1, 0, 0, 1, 1, 0, 0, 1,
+          0, 1, 0, 1, 0, 1, 0, 1,
+          0, 0, 1, 1, 0, 0, 1, 1,
+        ])
+      });
+
+      mat.shader = mat.shader.extend(glsl["bone-render"]);
+
+      mat.shader_axis = raw.webgl.shader.parse(glsl["axis-render"]);
+
+      mat.render_mesh = function (renderer, shader, mesh) {
+        renderer.gl.enable(2884);
+        renderer.gl.enable(2929);
+        shader.set_uniform("u_object_material_rw", this.object_material);
+        shader.set_uniform("u_texture_matrix_rw", this.texture_matrix);
+        renderer.use_texture(this.texture, 0);
+
+        renderer.activate_geometry_index_buffer(mesh.geometry, false);
+
+        for (k = 0; k < mesh.sys.display_skeletons.length; k++) {
+          skeleton = mesh.sys.display_skeletons[k];
+          shader.set_uniform("u_skeleton_pos", skeleton.transform.position_world);
+          for (i = 0; i < skeleton.skeleton.skinned_joints.length; i++) {
+            joint = skeleton.skeleton.skinned_joints[i];
+            if (joint && joint.parent !== null) {
+
+              shader.set_uniform("u_bone_end", joint.transform.position_world);
+              shader.set_uniform("u_bone_start", joint.transform.parent.position_world);
+              shader.set_uniform("u_joint_qr", joint.transform.parent.rotation_world);
+
+
+              renderer.gl.drawElements(4, mesh.draw_count, 5125, 0);
+            }
+          }
+        }
+
+        if (shader.shadow_shader) return;
+        renderer.use_shader(this.shader_axis);
+
+        this.shader_axis.set_uniform("u_view_projection_rw", renderer.active_camera.view_projection);
+        renderer.use_geometry(axis_geo);
+
+        //renderer.gl.disable(2929);
+
+        for (k = 0; k < mesh.sys.display_skeletons.length; k++) {
+          skeleton = mesh.sys.display_skeletons[k];
+          this.shader_axis.set_uniform("u_skeleton_pos", skeleton.transform.position_world);
+          for (i = 0; i < skeleton.skeleton.joints.length; i++) {
+            joint = skeleton.skeleton.joints[i];
+            if (joint.parent !== null) {
+              if (joint.skin_index > -1) {
+                this.shader_axis.set_uniform("u_bone_start", joint.transform.parent.position_world);
+                this.shader_axis.set_uniform("u_joint_qr", joint.transform.parent.rotation_world);
+                this.shader_axis.set_uniform("u_bone_end", joint.transform.position_world);
+              }
+              else {
+                this.shader_axis.set_uniform("u_bone_start", joint.transform.position_world);
+                this.shader_axis.set_uniform("u_joint_qr", joint.transform.rotation_world);
+                this.shader_axis.set_uniform("u_bone_end", joint.transform.position_world);
+              }
+
+              renderer.gl.drawArrays(1, 0, axis_geo.num_items);
+            }
+          }
+        }
+
+        //renderer.gl.enable(2929);
+
+      };
+
+
+      return function (ecs) {
+        if (this.skeleton_display_mesh) return;
+        this.skeleton_display_mesh = new raw.rendering.mesh({
+          geometry: geo, material: mat
+        });
+        this.skeleton_display_mesh.DP = new raw.rendering.debug_points();
+        this.skeleton_display_mesh.DL = new raw.rendering.debug_lines();
+
+        this.skeleton_display_mesh.flags += 1;
+        this.skeleton_display_mesh.sys = this;
+        this.skeleton_display = ecs.create_entity({
+          components: {
+            'transform': {},
+            'render_item': {
+              items: [
+                this.skeleton_display_mesh
+                , this.skeleton_display_mesh.DP
+                , this.skeleton_display_mesh.DL
+              ]
+            }
+          }
+        });
+
+      }
+
+    })();
+
+
+
+    proto.bind_animation_targets = (function () {
+      var tar = null, joint = null;
+      return function (skeleton, targets) {
+        for (i = 0; i < targets.length; i++) {
+          tar = targets[i];
+          joint = skeleton[tar.name];
+          if (joint) {
+
+            this.ecs.components['transform'].set_anim_target(joint.transform, tar);
+            ///joint.transform.flags = raw.set_flag(joint.transform.flags, 4);
+            //joint.transform.anim_target =tar
+          }
+        }
+      }
+    })();
+
+    return function skeleton_system(def) {
+      _super.apply(this, [def]);
+      this.display_skeletons = [];
+    }
+
+  }, raw.ecs.system));
+
+
+
+
+  raw.skeleton_system.mesh = raw.define(function (proto, _super) {
+
+
+    var skin_material_on_before_render = (function () {
+      var qr = raw.math.quat(), qd = raw.math.quat(), qq = null, ske = null, j = null, i = 0;
+      return function (renderer, shader, mesh) {
+        ske = mesh.skeleton;
+        for (i = 0; i < ske.skinned_joints.length; i++) {
+          j = ske.skinned_joints[i];
+          qq = j.joint_transform;
+          qr[0] = qq[0];
+          qr[1] = qq[1];
+          qr[2] = qq[2];
+          qr[3] = qq[3];
+
+          qd[0] = qq[4];
+          qd[1] = qq[5];
+          qd[2] = qq[6];
+          qd[3] = qq[7];
+
+
+          shader.set_uniform("joint_qr[" + i + "]", qr);
+          shader.set_uniform("joint_qd[" + i + "]", qd);
+        }
+      }
+
+    })();
+    function skin_shader(mat) {
+      if (!mat.shader.skin_shader) {
+        mat.shader = mat.shader.extend(glsl["skinned-mesh"]);
+        mat.on_before_render.add(skin_material_on_before_render);
+        mat.shader.skin_shader = true;
       }
     }
-    return false;
-  }
 
-  function transforms_manipulator(def) {
-    def = def || {};
-    _super.apply(this, [def]);
-    this.flags = 1;
-    this.geometry = geo;
-    this.material = mat;
-    this.transforms = [];
-    this.active_item = null;
-  }
+    proto.normalize_skin_weights = function (geo) {
+      var skin_weights = geo.attributes.a_joints_weights;
+      var scale = 0;
+      for (var i = 0; i < skin_weights.data.length; i += 4) {
+        scale = 1.0 / (Math.abs(skin_weights.data[i]) + Math.abs(skin_weights.data[i + 1]) + Math.abs(skin_weights.data[i + 2]) + Math.abs(skin_weights.data[i + 3]))
+        if (scale !== Infinity) {
+          skin_weights.data[i] *= scale;
+          skin_weights.data[i + 1] *= scale;
+          skin_weights.data[i + 2] *= scale;
+          skin_weights.data[i + 3] *= scale;
+        } else {
+          skin_weights.data[i] = 1;
+          skin_weights.data[i + 1] = 0;
+          skin_weights.data[i + 2] = 0;
+          skin_weights.data[i + 3] = 0;
+        }
 
-  return transforms_manipulator;
-}, raw.rendering.mesh);
+      }
+    };
 
+    proto.skin_geometry = function (geo, ske) {
+      var i = 0, k = 0, j = null, ds = 0;
+      var d = [];
+      var v = geo.attributes["a_position_rw"].data;
+      var js = geo.add_attribute("a_joints_indices", { data: new Float32Array((v.length / 3) * 4), item_size: 4 });
+      var jw = geo.add_attribute("a_joints_weights", { data: new Float32Array((v.length / 3) * 4), item_size: 4 });
+
+      var jpos = [], jlen = [], v1 = [], v2 = [], bpos = null;
+      for (i = 0; i < ske.skinned_joints.length; i++) {
+        j = ske.skinned_joints[i];
+        bpos = j.transform.bind_pos;
+        if (j.transform.parent !== null) {
+          raw.math.vec3.subtract(v1, bpos, j.transform.parent.bind_pos);
+          raw.math.vec3.normalize(v1, v1);
+          raw.math.vec3.scale(v2, v1, j.length * 0.5);
+          jpos.push(raw.math.vec3.add([], bpos, v2));
+
+        }
+        else {
+          jpos.push(bpos);
+        }
+
+        jlen.push(j.length || 0);
+      }
+      var si = 0;
+      for (i = 0; i < v.length; i += 3) {
+        for (k = 0; k < jpos.length; k++) {
+          ds = Math.abs(raw.math.vec3.distance2(jpos[k][0], jpos[k][1], jpos[k][2], v[i], v[i + 1], v[i + 2]));
+          d[k] = [k, ds];
+
+        }
+
+        d.sort(function (a, b) {
+          return a[1] - b[1];
+        });
+
+
+        for (k = 0; k < Math.min(jpos.length, 4); k++) {
+          js.data[si + k] = d[k][0];
+          jw.data[si + k] = (d[k][1] / (jlen[js.data[si + k]]));
+
+          if (d[k][1] > jlen[js.data[si + k]] * 0.5) {
+            // if (k>0 && jw.data[si + k] > 1) {
+            jw.data[si + k] = 0;
+          }
+        }
+        si += 4;
+      }
+      this.normalize_skin_weights(geo);
+      return geo;
+    };
+    proto.initialize_item = function () {
+      this.item_type = 2;
+
+      if (!this.geometry.attributes['a_joints_indices']) {
+        this.skin_geometry(this.geometry, this.skeleton);
+        console.log(skin_geometry);
+
+      }
+      this.flags += 1;
+
+      skin_shader(this.material);
+
+    };
+    function mesh(def) {
+      _super.apply(this, [def]);
+      this.skeleton = def.skeleton;
+      this.item_type = 1024;
+    }
+
+
+    return mesh;
+  }, raw.rendering.mesh);
+
+})();
+
+
+
+
+/*src/systems/render_list_system.js*/
 
 
 
@@ -7561,7 +9004,7 @@ raw.ecs.register_component("render_item", raw.define(function (proto, _super) {
     return (this);
   };
 
-  proto.update_bounds = function (mat) {}
+  proto.update_bounds = function (mat) { }
   function render_item(def) {
     _super.apply(this);
   }
@@ -7573,50 +9016,6 @@ raw.ecs.register_component("render_item", raw.define(function (proto, _super) {
   return render_item;
 
 }, raw.ecs.component));
-
-
-
-
-
-
-
-
-
-raw.ecs.register_system("render_item_system", raw.define(function (proto, _super) {
-  
-  var trans = null, entity = null, item = null, i = 0;
-  proto.step = function () {
-    this.worked_items = 0;
-    while ((entity = this.ecs.iterate_entities("render_item")) !== null) {
-      trans = entity.transform;
-      if (trans.require_update !== 0) {
-        for (i = 0; i < entity.render_item.items.length; i++) {
-          item = entity.render_item.items[i]
-          raw.math.quat.to_mat4(item.matrix_world, trans.rotation_world);
-          raw.math.mat4.scale(item.matrix_world, trans.scale_world);
-          item.matrix_world[12] = trans.position_world[0];
-          item.matrix_world[13] = trans.position_world[1];
-          item.matrix_world[14] = trans.position_world[2];
-          item.update_bounds(item.matrix_world, trans);
-          this.worked_items++;
-          if (item.item_type === 1024) {
-            item.initialize_item();
-          }
-        }        
-        entity.render_item.version += 0.000001;
-      }
-    }
-  };
-  proto.validate = function (ecs) {
-    this.priority = ecs.use_system('render_list_system').priority - 100;
-  };
-
-
-  return function render_item_system(def) {
-    _super.apply(this, [def]);
-  }
-
-}, raw.ecs.system));
 
 raw.ecs.register_component("render_list", raw.define(function (proto, _super) {
 
@@ -7638,10 +9037,10 @@ raw.ecs.register_component("render_list", raw.define(function (proto, _super) {
 
 
   function render_list(def) {
-    _super.apply(this);    
+    _super.apply(this);
     this.meshes = new raw.array();
-    this.lights = new raw.array();    
-    this.failed_meshes = new raw.array();    
+    this.lights = new raw.array();
+    this.failed_meshes = new raw.array();
 
   }
 
@@ -7653,7 +9052,6 @@ raw.ecs.register_component("render_list", raw.define(function (proto, _super) {
   return render_list;
 
 }, raw.ecs.component));
-
 
 
 raw.ecs.register_system("render_list_system", raw.define(function (proto, _super) {
@@ -7676,8 +9074,8 @@ raw.ecs.register_system("render_list_system", raw.define(function (proto, _super
   };
 
 
-  var list = null, camera = null, i = 0,render_item=null, item = null, ti = 0; items = null;
-  proto.step = function () {   
+  var list = null, camera = null, i = 0, render_item = null, item = null, ti = 0; items = null;
+  proto.step = function () {
 
     if (this.display_aabb) this.debug_aabbs.clear();
     this.worked_items = 0;
@@ -7690,17 +9088,17 @@ raw.ecs.register_system("render_list_system", raw.define(function (proto, _super
       list.last_step_time = this.ecs.timer - ((this.ecs.timer - list.last_step_time) % list.step_size);
       list.worked_items = 0;
       camera = list.camera.camera;
-     // if (list.camera_version === camera.version) continue;
+      // if (list.camera_version === camera.version) continue;
       list.camera_version = camera.version;
       list.meshes.clear();
       list.lights.clear();
       list.failed_meshes.clear();
-      
+
 
       for (i = 0; i < this.render_items.length; i++) {
         render_item = this.ecs.entities[this.render_items[i]].render_item;
 
-        
+
         if (!(render_item.layers & list.layer)) continue;
 
         items = render_item.items;
@@ -7708,15 +9106,15 @@ raw.ecs.register_system("render_list_system", raw.define(function (proto, _super
 
         for (ti = 0; ti < items.length; ti++) {
           item = items[ti];
-          
+
           if (item.item_type === 2 && (item.flags & 1)) {
-            list.worked_items++; 
+            list.worked_items++;
             list.meshes.push(item);
           }
           else if (item.bounds) {
-            
-            
-            if (camera.aabb_aabb(item.bounds)) {              
+
+
+            if (camera.aabb_aabb(item.bounds)) {
               if (this.display_aabb) this.debug_aabbs.add_aabb(item.bounds);
               if (camera.frustum_aabb(item.bounds)) {
                 raw.math.vec3.transform_mat4(item.view_position, item.world_position, camera.view_inverse);
@@ -7729,13 +9127,13 @@ raw.ecs.register_system("render_list_system", raw.define(function (proto, _super
                 }
               }
             }
-            
-            
+
+
           }
         }
 
-        
-       
+
+
 
 
       }
@@ -7748,2630 +9146,143 @@ raw.ecs.register_system("render_list_system", raw.define(function (proto, _super
   };
 
   return function render_list_system(def) {
-    _super.apply(this, [def]);    
+    _super.apply(this, [def]);
     this.display_aabb = false;
-    this.step_size *=4;
+    this.step_size *= 4;
   }
 
 }, raw.ecs.system));
 
+raw.ecs.register_system("render_item_system", raw.define(function (proto, _super) {
 
-
-
-/*src/skeleton_system.js*/
-
-
-raw.skeleton_system = {};
-
-raw.ecs.register_component("skeleton", raw.define(function (proto, _super) {
-
-  proto.create = (function (_super) {
-    var self, t, bind_pos = [], ik_chain = null;
-    return function (def, entity,ecs) {
-      _super.apply(this, [def, entity, ecs]);     
-
-      this.skinned_joints.length = 0;
-      this.joints.length = 0;
-      this.display = def.display || false;
-
-      this.ecs = ecs;
-      def.joints.for_each(function (j, i, self) {
-        joint = ecs.create_entity({
-          components: {
-            'transform': {
-              position: j.position || j.pos,
-              rotation: j.rotation || j.rot,
-              scale: j.scale,
-              scaleable: false,
-            },
-          }
-        });
-        if (j.eular) {
-          raw.math.quat.rotate_eular(joint.transform.rotation, j.eular[0], j.eular[1], j.eular[2]);
-        }
-
-        if (def.pre_scale) {
-          raw.math.vec3.multiply(joint.transform.position, joint.transform.position, def.pre_scale);
-          
-
-          
-        }
-
-        raw.assign(joint, {
-          name: j.name || ('j' + i), length: 0, parent: null,
-          skin_index: (def.all_skin_joints ? i : j.skin_index),
-          cone:j.cone
-        });
-
-        if (j.skin_index !== undefined) joint.skin_index = j.skin_index;
-        if (joint.skin_index === undefined) joint.skin_index = -1;
-
-        if (joint.skin_index > -1) {
-          
-          joint.bind_transform = joint.bind_transform || raw.math.dquat();
-          joint.joint_transform = joint.joint_transform || raw.math.dquat();
-
-          
-          if (j.bind_pos && j.bind_pos.length === 16) {
-            joint.set_bind_pos = false;
-            raw.math.mat4.copy(bind_pos, j.bind_pos);
-            if (def.pre_scale) {
-              bind_pos[12] *= def.pre_scale[0];
-              bind_pos[13] *= def.pre_scale[1];
-              bind_pos[14] *= def.pre_scale[2];
-            }
-            raw.math.dquat.from_mat4(joint.bind_transform, bind_pos);           
-          }
-          else {
-            joint.set_bind_pos = true;
-          }
-          
-
-
-        }
-
-
-        if (j.pn !== undefined) {
-          j.pr = self[j.pn].index;
-        }
-
-
-        if (j.pr === undefined && i > 0) {
-          joint.transform.parent = self.joints[i - 1].transform;
-          joint.parent = self.joints[i - 1];
-        }
-        else if (j.pr > -1) {
-          joint.transform.parent = self.joints[j.pr].transform;
-          joint.parent = self.joints[j.pr];
-
-        }
-
-        joint.index = self.joints.length;
-        self[joint.name] = joint;
-        self.joints[self.joints.length] = joint;
-
-        if (joint.skin_index > -1) {
-          self.skinned_joints[joint.skin_index] = joint;
-        }
-
-      }, this);
-
-      if (def.ik) {
-        self = this;
-        if (def.ik.effectors) {
-          for (t in def.ik.effectors) {          
-            this.ik_effectors[t] = def.ik.effectors[t];
-          }
-        }
-        if (def.ik.chains) {
-          def.ik.chains.forEach(function (ch) {
-            self.create_ik_chain(ch);
-          });          
-        }
-      }
-
-      this.joints[0].transform.parent = entity.transform;
-
-      this.version = 0;
-      this.needs_update = 0;
-      this.entity = entity;
-      this.initialized = false;
-
-    }
-  })(proto.create);
-
-  proto.add_joint = function (j) {
-    joint = this.ecs.create_entity({
-      components: {
-        'transform': {
-          position: j.position || j.pos,
-          rotation: j.rotation || j.rot,
-          scale: j.scale,
-          scaleable: false,
-        },
-      }
-    });
-
-    if (j.eular) {
-      raw.math.quat.rotate_eular(joint.transform.rotation, j.eular[0], j.eular[1], j.eular[2]);
-    }
-
-    raw.assign(joint, {
-      name: j.name || ('joint' + i), length: 0, parent: null
-    });
-
-    if (j.skin_index !== undefined) joint.skin_index = j.skin_index;
-    if (joint.skin_index === undefined) joint.skin_index = -1;
-
-    if (joint.skin_index > -1) {
-      joint.bind_transform = joint.bind_transform || raw.math.dquat();
-      joint.joint_transform = joint.joint_transform || raw.math.dquat();
-      joint.set_bind_pos = true;
-    }
-    joint.transform.bind_pos = raw.math.vec3();
-    joint.transform.bind_rot = raw.math.quat();
-    if (j.pn !== undefined) {
-      j.pr = this[j.pn].index;
-    }
-
-    if (j.pr === undefined && i > 0) {
-      joint.transform.parent = this.joints[i - 1].transform;
-      joint.parent = this.joints[i - 1];
-    }
-    else if (j.pr > -1) {
-      joint.transform.parent = this.joints[j.pr].transform;
-      joint.parent = this.joints[j.pr];
-
-    }
-
-    joint.index = this.joints.length;
-    this[joint.name] = joint;
-    this.joints[this.joints.length] = joint;
-
-    if (joint.skin_index > -1) {
-      this.skinned_joints[joint.skin_index] = joint;
-    }
-
-    return joint;
-  };
-  proto.create_ik_chain = function (ch) {
-    self = this;
-    ik_chain = {
-      pole: null, needs_update: true, pole_force: 0,
-      root_pos: [0, 0, 0],
-      effector: null, joints: [], iterations: ch.iterations || 10
-    };
-
-    if (ch.pole) {
-      if (raw.is_string(ch.pole)) {
-        ik_chain.pole = self.ik_effectors[ch.pole];
-      }
-      else {
-        ik_chain.pole = ch.pole;
-      }
-      ik_chain.pole_force = ch.pole_force || 0.1;
-    }
-
-    if (ch.effector) {
-      if (raw.is_string(ch.effector)) {
-        ik_chain.effector = self.ik_effectors[ch.effector];
-      }
-      else {
-        ik_chain.effector = ch.effector;
-      }
-    }
-
-
-    ik_chain.enabled = ch.enabled === undefined ? true : ch.enabled;
-    ik_chain.continuous = ch.continuous;
-    if (!ch.joints) {
-      this.joints.forEach(function (joint) {
-        if (joint.skin_index > -1) {
-          joint.ik_rotate = joint.ik_rotate || raw.math.quat();
-          ik_chain.joints.push(joint);
-        }
-        
-      });
-    }
-    else {
-      ch.joints.forEach(function (j,i) {
-        joint = self[j];
-        if (i === 0) {
-          if (!joint.ik_rotate) {
-            joint.ik_rotate = [0, 0, 0, 0];
-            joint.ik_pos = [0, 0, 0];
-            joint.ik_count = 0;
-            joint.ik_chain_updated = false;
-            self.ik_roots[joint.index] = joint;
-          }
-          else {
-            joint.ik_count++;
-          }
-          
-        }
-        
-        ik_chain.joints.push(joint);
-      });
-    }
-    this.ik_chains[this.ik_chains.length] = ik_chain;
-
-    ik_chain.root = ik_chain.joints[0];
-
-    return ik_chain;
-  }
-
-
-  function skeleton(def) {
-    _super.apply(this);
-    this.skinned_joints = [];
-    this.joints = [];
-    this.ik_chains = [];
-    this.ik_effectors = {};
-    this.ik_joints = [];
-    this.ik_roots = [];
-    this.transforms = [];
-    this.ik_trackers = [];
-    
-  }
-
-
-  skeleton.validate = function (component) {
-    component.ecs.use_system('skeleton_system');
-  };
-
-
-  return skeleton;
-
-}, raw.ecs.component));
-
-
-raw.ecs.register_system("skeleton_system", raw.define(function (proto, _super) {
-
-  proto.resolve_ik_chain = (function () {
-    var vec3 = raw.math.vec3, quat = raw.math.quat;
-    var i = 0, ln = 0, j = null, p = null, posi = [], polars = [], roti = [], lp = null,
-      v1 = [0, 0, 0], v2 = [0, 0, 0], v3 = [0, 0, 0];
-    for (i = 0; i < 10; i++) {
-      posi[i] = [0, 0, 0];
-      polars[i] = [0, 0, 0];
-      roti[i] = [0, 0, 0, 1];
-    }
-
-    var q1 = raw.math.quat(), q2 = raw.math.quat(), q3 = raw.math.quat();
-    var thr = 0.01, ln2 = 0, ter = 0, tg = null;
-    var clen = 0, k = 0, thg = thr * thr;
-    var cv = raw.math.vec3(), cvs = [0, 0, 0], cvl = 0, k = 0, cvn = 0;
-
-    var limit_joint = function (j, limit) {
-      if (limit !== undefined) {
-
-        if (i > 1) {
-          raw.math.vec3.subtract(v2, posi[i - 1], posi[i - 2]);
-          raw.math.vec3.normalize(v2, v2);
-          raw.math.vec3.scale(v2, v2, j.length);
-          raw.math.vec3.add(v2, v2, posi[i - 1]);
-        }
-        else {
-
-          raw.math.vec3.subtract(v2, posi[i - 1], j.parent.transform.parent.position_world);
-          raw.math.vec3.normalize(v2, v2);
-          raw.math.vec3.scale(v2, v2, j.length);
-          raw.math.vec3.add(v2, v2, posi[i - 1]);
-        }
-
-
-        raw.math.vec3.subtract(cv, posi[i], v2);
-        ln = Math.sqrt(cv[0] * cv[0] + cv[2] * cv[2]);
-        raw.math.vec3.subtract(cv, posi[i], v2);
-        cvl = Math.atan2(cv[0], cv[2]);
-        cvn = Math.sign(cvl);
-        if (j.limit[0] === j.limit[1]) {
-          v3[0] = (Math.cos(j.limit[0]) * ln) * cvn;
-          v3[2] = (Math.sin(j.limit[0]) * ln) * cvn;
-        }
-        else {
-          cvl = Math.max(Math.min(cvl, j.limit[0]), j.limit[0]);
-          v3[0] = (Math.cos(cvl) * ln);
-          v3[2] = (Math.sin(cvl) * ln);
-        }
-        v3[1] = posi[i][1];
-
-        posi[i][0] = v2[0] + v3[0];
-        //posi[i][1] = posi[i - 1][1] + v3[1];
-        posi[i][2] = v2[2] + v3[2];
-        //raw.math.vec3.add(posi[i],v2, v3);
-
-        /*
-        
-        raw.math.vec3.subtract(v3, posi[i], v2);
-        raw.math.vec3.to_polar(v1, v3);
-        
-        v1[1] = Math.max(Math.min(v1[1], limit[3]), limit[2]);
-        
-
-        raw.math.vec3.from_polar(v3, v1[0], v1[1], v1[2]);
-        raw.math.vec3.add(posi[i], v2, v3);
-        */
-        raw.math.vec3.subtract(cv, posi[i], v1);
-        ln = Math.sqrt(cv[0] * cv[0] + cv[1] * cv[1] + cv[2] * cv[2]);
-        if (ln > j.limit[2]) {
-          cvl = j.limit[2] - ln;
-          raw.math.vec3.subtract(cv, posi[i], v1);
-          raw.math.vec3.normalize(cv, cv);
-          raw.math.vec3.scale(v3, cv, cvl);
-          raw.math.vec3.add(posi[i], posi[i], v3);
-          if (i > 1) {
-            // raw.math.vec3.subtract(posi[i - 1], posi[i - 1], v3);
-          }
-        }
-
-      }
-      if (j.limit2 !== undefined) {
-
-        raw.math.vec3.subtract(v3, posi[i], posi[i - 1]);
-        raw.math.vec3.copy(v2, v3);
-        raw.math.vec3.to_polar(v1, v3);
-        v1[0] = Math.max(Math.min(v1[1], limit[1]), limit[0]);
-        //v1[1] =0- polars[i - 1][1];
-        v1[1] = Math.max(Math.min(v1[1], limit[3]), limit[2]);
-        //v1[1] -= polars[i - 1][1];
-        // v1[0] -= polars[i - 1][0];
-
-
-        raw.math.vec3.from_polar(v3, v1[0], v1[1], v1[2]);
-        raw.math.vec3.subtract(v1, v3, v2);
-        // raw.math.vec3.add(posi[i], posi[i - 1], v3);
-
-        raw.math.vec3.add(posi[i], posi[i], v1);
-        if (i > 1) {
-          // raw.math.vec3.subtract(posi[i - 1], posi[i - 1], v1);
-        }
-
-      }
-      if (j.limit2 !== undefined) {
-        if (i > 1) {
-          raw.math.vec3.subtract(v2, posi[i - 1], posi[i - 2]);
-          raw.math.vec3.normalize(v2, v2);
-          raw.math.vec3.scale(v2, v2, j.length);
-          raw.math.vec3.add(v2, v2, posi[i - 1]);
-        }
-        else {
-
-          raw.math.vec3.subtract(v2, posi[i - 1], j.parent.transform.parent.position_world);
-          raw.math.vec3.normalize(v2, v2);
-          raw.math.vec3.scale(v2, v2, j.length);
-          raw.math.vec3.add(v2, v2, posi[i - 1]);
-
-          //raw.math.vec3.normalize(v2, raw.math.V3_Y);
-          //raw.math.vec3.scale(v2, v2, j.length);
-          //raw.math.vec3.add(v2, v2, posi[i - 1]);
-        }
-
-        raw.math.vec3.copy(v1, v2);
-
-
-
-        if (j.limit[2] !== -999) {
-          raw.math.vec3.subtract(cv, posi[i], v2);
-          ln = Math.sqrt(cv[0] * cv[0] + cv[2] * cv[2]);
-          raw.math.vec3.subtract(cv, posi[i], v2);
-          cvl = Math.atan2(cv[0], cv[2]);
-          // console.log('cv' + i, cvl);
-          cvn = Math.sign(cvl);
-          if (j.limit[2] === j.limit[3]) {
-            v3[0] = (Math.cos(j.limit[2]) * ln) * cvn;
-            v3[2] = (Math.sin(j.limit[2]) * ln) * cvn;
-          }
-          else {
-            cvl = Math.max(Math.min(cvl, j.limit[3]), j.limit[2]);
-            v3[0] = (Math.cos(cvl) * ln);
-            v3[2] = (Math.sin(cvl) * ln);
-          }
-          v3[1] = posi[i][1];
-
-          cvl = Math.atan2(v3[0], v3[1]);
-          cvl = Math.max(Math.min(cvl, j.limit[5]), j.limit[4]);
-
-          //   v3[0] = (Math.cos(cvl) * ln);
-          //  v3[1] = (Math.sin(cvl) * ln);
-          //console.log('cvl', cvl*57.29577951308232);
-
-
-
-
-
-          posi[i][0] = v2[0] + v3[0];
-          //posi[i][1] = posi[i - 1][1] + v3[1];
-          posi[i][2] = v2[2] + v3[2];
-
-          raw.math.vec3.subtract(v3, posi[i], posi[i - 1]);
-          raw.math.vec3.normalize(v3, v3);
-          raw.math.quat.rotation_to(q1, raw.math.V3_Y, v3);
-          cvl = raw.math.quat.get_angle(q1);
-
-          cvl = Math.max(Math.min(cvl, j.limit[5]), j.limit[4]);
-
-          raw.math.quat.set_axis_angle(q1, q1, cvl);
-
-          raw.math.vec3.transform_quat(v3, raw.math.V3_Y, q1);
-          raw.math.vec3.normalize(v3, v3);
-          raw.math.vec3.scale_add(posi[i], posi[i - 1], v3, j.length);
-
-
-        }
-
-
-
-
-        console.log('cvl', cvl * 57.29577951308232);
-        //console.log(q1.join());
-
-
-        if (j.limit[0] > 0) {
-
-          v1[0] += j.limit[1];
-          raw.math.vec3.subtract(cv, posi[i], v1);
-          ln = Math.sqrt(cv[0] * cv[0] + cv[1] * cv[1] + cv[2] * cv[2]);
-          if (ln > j.limit[0]) {
-            cvl = j.limit[0] - ln;
-            raw.math.vec3.subtract(cv, posi[i], v1);
-            raw.math.vec3.normalize(cv, cv);
-            raw.math.vec3.scale(v3, cv, cvl);
-            raw.math.vec3.add(posi[i], posi[i], v3);
-            if (i > 1) {
-              // raw.math.vec3.subtract(posi[i - 1], posi[i - 1], v3);
-            }
-          }
-        }
-
-
-      }
-    }
-
-
-    var vn = [];
-    limit_joint = function (j, limit) {
-      if (limit !== undefined) {
-        if (i > 1) {
-          raw.math.vec3.subtract(v2, posi[i - 1], posi[i - 2]);
-          raw.math.vec3.normalize(vn, v2);
-          raw.math.vec3.scale(v2, vn, j.length);
-          raw.math.vec3.add(v2, posi[i - 1], v2);
-
-
-        }
-        else {
-          raw.math.vec3.subtract(v2, posi[i - 1], j.parent.transform.parent.position_world);
-          ln = raw.math.vec3.get_length(v2);
-          if (ln === 0) {
-            raw.math.vec3.normalize(vn, raw.math.V3_Y);
-          }
-          else {
-            raw.math.vec3.normalize(vn, v2);
-          }
-
-          raw.math.vec3.scale(v2, vn, j.length);
-          raw.math.vec3.add(v2, v2, posi[i - 1]);
-        }
-        raw.math.vec3.copy(j.v2, v2);
-        raw.math.vec3.copy(j.posi1, posi[i - 1]);
-
-
-        //raw.math.quat.rotation_to(q1, raw.math.V3_Y, vn);
-        //raw.math.vec3.transform_quat(j.v3, raw.math.V3_X, q1);
-
-        raw.math.vec3.normalize(j.v3, j.v3);
-
-        raw.math.vec3.scale_add(j.v3, posi[i - 1], j.v3, j.length);
-
-
-        raw.math.vec3.subtract(j.an, posi[i], v2);
-
-        raw.math.vec3.normalize(j.an, j.an);
-
-        //raw.math.vec3.scale_add(j.an, j.v2, j.an, j.length);
-
-        if (j.limit[0] > 0) {
-          raw.math.vec3.subtract(cv, posi[i], v2);
-
-          ln = Math.sqrt(cv[0] * cv[0] + cv[1] * cv[1] + cv[2] * cv[2]);
-          if (ln > j.limit[0]) {
-            raw.math.vec3.subtract(cv, posi[i], v2);
-            raw.math.vec3.normalize(cv, cv);
-            raw.math.vec3.scale_add(cv, v2, cv, j.limit[0]);
-            raw.math.vec3.subtract(cv, cv, posi[i - 1]);
-            raw.math.vec3.normalize(cv, cv);
-            raw.math.vec3.scale_add(posi[i], posi[i - 1], cv, j.length);
-          }
-        }
-
-        if (j.limit[1] !== -999) {
-          raw.math.vec3.subtract(v3, posi[i], posi[i - 1]);
-          //raw.math.vec3.normalize(cv, j.parent.an);
-          raw.math.vec3.scale(cv, j.parent.an, j.length);
-          raw.math.vec3.cross(j.an, cv, v2);
-          raw.math.vec3.normalize(j.an, j.an);
-          //raw.math.vec3.scale_add(j.an, posi[i - 1], j.an, j.length);
-          cvs = raw.math.vec3.dot(j.an, v3);
-
-          raw.math.vec3.scale_add(posi[i], posi[i], j.an, -cvs)
-          //raw.math.vec3.scale_add(posi[i - 1], posi[i - 1], j.an, -cvs);
-
-          // cv[1] = v3[1];
-          raw.math.vec3.normalize(cv, cv);
-          //raw.math.vec3.scale_add(posi[i], posi[i - 1], cv, j.length);
-
-          /*
-            raw.math.vec3.subtract(cv, posi[i], posi[i - 1]);
-            raw.math.vec3.to_polar(v3, cv);
-            raw.math.vec3.from_polar(cv,
-              Math.max(Math.min(v3[0], j.limit[2]), j.limit[1]),    v3[1], v3[2]);
-            //raw.math.vec3.add(posi[i], posi[i - 1], cv);
-            raw.math.vec3.normalize(cv, cv);
-            raw.math.vec3.scale_add(posi[i], posi[i - 1], cv, j.length);
-            */
-        }
-
-
-      }
-      return
-      if (limit !== undefined) {
-        raw.math.vec3.subtract(v2, posi[i], posi[i - 1]);
-        ln = Math.sqrt(v2[0] * v2[0] + v2[1] * v2[1] + v2[2] * v2[2]);
-        raw.math.vec3.set(v3, 0, ln, 0);
-        raw.math.vec3.subtract(cv, v2, v3);
-        ln = Math.sqrt(cv[0] * cv[0] + cv[1] * cv[1] + cv[2] * cv[2]);
-
-        if (ln > j.limit[0]) {
-          cvl = j.limit[0] - ln;
-          raw.math.vec3.normalize(cv, cv);
-          raw.math.vec3.scale(v3, cv, cvl);
-          raw.math.vec3.add(posi[i], posi[i], v3);
-          if (i > 0) {
-            raw.math.vec3.subtract(posi[i - 1], posi[i - 1], v3);
-          }
-        }
-
-      }
-
-      return;
-
-
-    }
-
-    function get_eular(e, vc1, vc2) {
-      vec3.cross(v1, vc1, vc2);
-      ln = vec3.dot(vc1, vc2);
-
-
-    }
-
-    return function (chain) {
-      tg = chain.effector.position_world;
-      ch = chain.joints;
-      clen = ch.length - 1;
-
-
-
-
-      if (!chain.needs_update) {
-        raw.math.vec3.subtract(v1, ch[clen].transform.position_world, tg);
-        ln = (v1[0] * v1[0] + v1[1] * v1[1] + v1[2] * v1[2]);
-
-        chain._ln = ln;
-        chain._thg = thg;
-        if (ln < thg) {
-          return false;
-        }
-      }
-      chain.needs_update = false;
-
-      posi[clen][0] = tg[0];
-      posi[clen][1] = tg[1];
-      posi[clen][2] = tg[2];
-      raw.math.vec3.subtract(v1, posi[clen], ch[0].transform.position_world);
-
-      ln = 0;
-      for (i = 0; i <= clen; i++)
-        ln += ch[i].length;
-
-      ln2 = Math.abs(v1[0] * v1[0] + v1[1] * v1[1] + v1[2] * v1[2]);
-      ln2 = raw.math.vec3.get_length(v1);
-
-
-      if (ln2 > ln && false) {
-        j = ch[0];
-        raw.math.vec3.normalize(v1, v1);
-
-        if (j.transform.parent !== null) {
-          raw.math.quat.rotation_to(q1, raw.math.V3_Y, v1);
-          raw.math.quat.invert(q2, j.transform.parent.rotation_world);
-          raw.math.quat.multiply(j.ik_rotate, q2, q1);
-        }
-        else raw.math.quat.rotation_to(ch[0].ik_rotate, raw.math.V3_Y, v1);
-        for (i = 1; i <= clen; i++) {
-          raw.math.quat.identity(ch[i].ik_rotate);
-        }
-
-        return true;
-      }
-
-
-      for (i = 1; i < clen; i++) {
-        j = ch[i];
-        posi[i][0] = j.transform.position_world[0];
-        posi[i][1] = j.transform.position_world[1];
-        posi[i][2] = j.transform.position_world[2];
-
-
-      }
-
-      ter = 0;
-
-      while (ter < 10) {
-
-
-
-
-        posi[clen][0] = tg[0];
-        posi[clen][1] = tg[1];
-        posi[clen][2] = tg[2];
-
-        if (ter > 0) {
-
-        }
-
-
-        i = clen - 1;
-        cvl = -1000;
-        while (i > 0) {
-          j = ch[i];
-          raw.math.vec3.subtract(v1, posi[i], posi[i + 1]);
-          raw.math.vec3.normalize(v1, v1);
-          raw.math.vec3.scale(v2, v1, ch[i + 1].length);
-          raw.math.vec3.to_polar(polars[i], v2);
-          raw.math.vec3.add(posi[i], posi[i + 1], v2);
-
-
-
-          i--;
-        }
-
-
-        for (i = clen - 1; i > 0; i--) {
-          // limit_joint(ch[i], ch[i].limit);
-        }
-
-        for (i = 1; i < clen + 1; i++) {
-          //limit_joint(ch[i], ch[i].limit);
-        }
-
-        lp = ch[0].transform.position_world;
-        i = 1;
-        posi[0][0] = lp[0];
-        posi[0][1] = lp[1];
-        posi[0][2] = lp[2];
-
-        while (i <= clen) {
-          j = ch[i];
-          raw.math.vec3.subtract(v1, posi[i], posi[i - 1]);
-          raw.math.vec3.normalize(v1, v1);
-          raw.math.vec3.scale(v2, v1, ch[i].length);
-          raw.math.vec3.to_polar(polars[i], v2);
-          raw.math.vec3.add(posi[i], lp, v2);
-
-          //limit_joint(ch[i], ch[i].limit);
-
-          lp = posi[i];
-          i++;
-        }
-
-
-
-        for (i = clen - 1; i > 0; i--) {
-          //limit_joint(ch[i], ch[i].limit);
-        }
-
-        v1[0] = posi[clen][0] - tg[0];
-        v1[1] = posi[clen][1] - tg[1];
-        v1[2] = posi[clen][2] - tg[2];
-
-        ln = (v1[0] * v1[0] + v1[1] * v1[1] + v1[2] * v1[2]);
-        chain._ln = ln;
-        chain._thg = thg;
-        if (ter > 0 && ln < thg) {
-          break;
-        }
-
-
-
-
-        ter++;
-      }
-
-      i = 0;
-      if (ch[0].transform.parent !== null) {
-        raw.math.quat.copy(roti[0], ch[0].transform.parent.rotation_world);
-      }
-      else {
-        raw.math.quat.identity(roti[0]);
-      }
-      while (i < clen) {
-        j = ch[i];
-        vec3.subtract(v1, posi[i + 1], posi[i]);
-        
-
-
-
-        /*
-        vec3.to_polar(v2, v1);
-        quat.set_axis_angle(q1, raw.math.V3_X, v2[0]);        
-        quat.set_axis_angle(q2, raw.math.V3_Z, -v2[1]);        
-        quat.multiply(q1, q2, q1);
-        quat.normalize(q1, q1);
-        */
-        //        
-        //quat.set_axis_angle(q1, v2, (vec3.dot(posi[i], posi[i + 1])));        
-        //quat.rotation_to(q1, raw.math.V3_Y, v1);
-        //quat.aim(q1, posi[i], posi[i + 1]);
-        
-        //vec3.cross(v3, posi[i + 1], posi[i]);
-        //raw.math.vec3.normalize(v3, v3);        
-
-        //vec3.normalize(v1, posi[i]);        
-        //vec3.normalize(v2, posi[i + 1]);        
-
-       // quat.aim(q1, posi[i], posi[i + 1]);
-        //
-        vec3.subtract(v1, posi[i + 1], posi[i]);
-        vec3.normalize(v1, v1);
-        vec3.cross(v2, v1, raw.math.V3_Y);
-        vec3.normalize(v2,v2);        
-        //quat.aim(q1, v2, v1);
-        quat.rotation_to(q1, v2, v1);
-        //quat.aim(q1,  v2,v1);
-        //quat.set_axis_angle(q1, v3, Math.acos(vec3.dot(v1, v2)));
-
-        
-        //Vector v = (this->cross(vector)).normalize();
-        //return Quaternion(v, acos(a.dot(b)));
-        
-        // quat.aim(q1, raw.math.V3_Y, v1);
-        
-      //  raw.math.quat.normalize(q1, q1);
-        raw.math.quat.invert(q2, roti[0]);
-        raw.math.quat.multiply(q1, q2, q1);
-
-        raw.math.quat.copy(j.transform.rotation, q1);
-
-
-
-        raw.math.quat.multiply(roti[0], roti[0], j.transform.rotation);
-
-        j.transform.require_update = 1;
-        i++;
-      }
-
-      return true;
-      /*
-      quaternion q;
-      vector3 c = cross(v1, v2);
-      q.v = c;
-      if (vectors are known to be unit length ) {
-        q.w = 1 + dot(v1, v2);
-  } else {
-      q.w = sqrt(v1.length_squared() * v2.length_squared()) + dot(v1, v2);
-  } q.normalize(); return q;
-  */
-
-
-      i = 0;
-      while (i < clen) {
-        j = ch[i];
-        raw.math.vec3.subtract(v1, posi[i + 1], posi[i]);
-        raw.math.vec3.normalize(v1, v1);
-        if (i > 0) {
-          raw.math.quat.rotation_to(q1, raw.math.V3_Y, v1);
-          raw.math.quat.invert(q2, roti[i - 1]);
-          raw.math.quat.multiply(j.ik_rotate, q2, q1);
-          raw.math.quat.multiply(roti[i], roti[i - 1], j.ik_rotate);
-        }
-        else {
-          if (j.transform.parent !== null) {
-            raw.math.quat.rotation_to(q1, raw.math.V3_Y, v1);
-            raw.math.quat.invert(q2, j.transform.parent.rotation_world);
-            raw.math.quat.multiply(j.ik_rotate, q2, q1);
-            raw.math.quat.multiply(roti[i], j.transform.parent.rotation_world, j.ik_rotate);
-          }
-          else {
-            raw.math.quat.rotation_to(j.ik_rotate, raw.math.V3_Y, v1);
-            raw.math.quat.copy(roti[i], j.ik_rotate);
-          }
-
-        }
-        i++;
-      }
-
-      return true;
-
-    }
-
-    return function (chain) {
-      tg = chain.effector.position_world;
-      ch = chain.joints;
-      clen = ch.length - 1;
-
-
-
-
-      if (!chain.needs_update) {
-        raw.math.vec3.subtract(v1, ch[clen].transform.position_world, tg);
-        ln = (v1[0] * v1[0] + v1[1] * v1[1] + v1[2] * v1[2]);
-
-        chain._ln = ln;
-        chain._thg = thg;
-        if (ln < thg) {
-          return false;
-        }
-      }
-      chain.needs_update = false;
-
-      posi[clen][0] = tg[0];
-      posi[clen][1] = tg[1];
-      posi[clen][2] = tg[2];
-      raw.math.vec3.subtract(v1, posi[clen], ch[0].transform.position_world);
-
-      ln = 0;
-      for (i = 0; i <= clen; i++)
-        ln += ch[i].length;
-
-      ln2 = Math.abs(v1[0] * v1[0] + v1[1] * v1[1] + v1[2] * v1[2]);
-      ln2 = raw.math.vec3.get_length(v1);
-
-
-      if (ln2 > ln && false) {
-        j = ch[0];
-        raw.math.vec3.normalize(v1, v1);
-
-        if (j.transform.parent !== null) {
-          raw.math.quat.rotation_to(q1, raw.math.V3_Y, v1);
-          raw.math.quat.invert(q2, j.transform.parent.rotation_world);
-          raw.math.quat.multiply(j.ik_rotate, q2, q1);
-        }
-        else raw.math.quat.rotation_to(ch[0].ik_rotate, raw.math.V3_Y, v1);
-        for (i = 1; i <= clen; i++) {
-          raw.math.quat.identity(ch[i].ik_rotate);
-        }
-
-        return true;
-      }
-
-
-      for (i = 1; i < clen; i++) {
-        j = ch[i];
-        posi[i][0] = j.transform.position_world[0];
-        posi[i][1] = j.transform.position_world[1];
-        posi[i][2] = j.transform.position_world[2];
-
-
-      }
-
-      ter = 0;
-
-      while (ter < 3) {
-
-
-
-
-        posi[clen][0] = tg[0];
-        posi[clen][1] = tg[1];
-        posi[clen][2] = tg[2];
-
-        i = clen - 1;
-        cvl = -1000;
-        while (i > 0) {
-          j = ch[i];
-          raw.math.vec3.subtract(v1, posi[i], posi[i + 1]);
-          raw.math.vec3.normalize(v1, v1);
-          raw.math.vec3.scale(v2, v1, ch[i + 1].length);
-          raw.math.vec3.to_polar(polars[i], v2);
-          raw.math.vec3.add(posi[i], posi[i + 1], v2);
-          i--;
-        }
-
-
-        
-
-
-        lp = ch[0].transform.position_world;
-        i = 1;
-        posi[0][0] = lp[0];
-        posi[0][1] = lp[1];
-        posi[0][2] = lp[2];
-
-        while (i <= clen) {
-          j = ch[i];
-          raw.math.vec3.subtract(v1, posi[i], posi[i - 1]);
-          raw.math.vec3.normalize(v1, v1);
-          raw.math.vec3.scale(v2, v1, ch[i].length);
-          raw.math.vec3.to_polar(polars[i], v2);
-          raw.math.vec3.add(posi[i], lp, v2);
-
-          //limit_joint(ch[i], ch[i].limit);
-
-          lp = posi[i];
-          i++;
-        }
-
-        for (i = clen - 1; i > 0; i--) {
-          //limit_joint(ch[i], ch[i].limit);
-        }
-
-        i = 0;
-        while (i < clen) {
-          j = ch[i];
-          raw.math.vec3.subtract(v1, posi[i + 1], posi[i]);
-          raw.math.vec3.normalize(v1, v1);
-          raw.math.quat.rotation_to(q1, raw.math.V3_Y, v1);
-
-          if (j.limit2 !== undefined) {
-            q1[2] = 0;
-            //q1[3] = Math.max(Math.min(q1[3], 0.2), -0.2);
-            raw.math.quat.normalize(q1, q1);
-            // raw.math.quat.identity(q1);
-          }
-
-          if (j.limit) {
-            raw.math.vec3.set(v3, 0.5, 1, 0);
-            //raw.math.vec3.transform_quat(v3, raw.math.V3_X, q1);
-
-            raw.math.vec3.transform_quat(v2, raw.math.V3_Y, q1);
-            cvn = raw.math.vec3.distance(v3, raw.math.V3_Y);
-            raw.math.vec3.subtract(v2, v2, raw.math.V3_Y);
-            ln = raw.math.vec3.get_length(v2);
-
-            if (ln > cvn) {
-              raw.math.vec3.normalize(v2, v2);
-              raw.math.vec3.scale(v2, v2, cvn);
-              raw.math.vec3.normalize(v3, v3);
-              raw.math.quat.rotation_to(q1, raw.math.V3_Y, v2);
-              /*
-              if (i > 0) {
-                raw.math.quat.invert(q2, roti[i - 1]);
-                raw.math.quat.multiply(j.ik_rotate, q2, q1);
-                raw.math.quat.multiply(roti[i], roti[i - 1], j.ik_rotate);
-              }
-              else {
-                raw.math.quat.copy(roti[i], q1);
-                raw.math.quat.copy(j.ik_rotate, q1);
-              }
-              */
-            }
-          }
-
-          if (i > 0) {
-            raw.math.quat.invert(q2, roti[i - 1]);
-            raw.math.quat.multiply(j.ik_rotate, q2, q1);
-            raw.math.quat.multiply(roti[i], roti[i - 1], j.ik_rotate);
-          }
-          else {
-            if (j.transform.parent !== null) {
-              raw.math.quat.invert(q2, j.transform.parent.rotation_world);
-              raw.math.quat.multiply(j.ik_rotate, q2, q1);
-              raw.math.quat.multiply(roti[i], j.transform.parent.rotation_world, j.ik_rotate);
-            }
-            else {
-              raw.math.quat.copy(roti[i], q1);
-              raw.math.quat.copy(j.ik_rotate, q1);
-            }
-          }
-
-
-
-          if (j.limit2) {
-
-            raw.math.vec3.transform_quatx(v2, 0, 1, 0, roti[i]);
-            raw.math.vec3.transform_quatx(v3, 0, 1, 0, roti[i - 1]);
-            raw.math.quat.rotation_to(q2, v2, v3);
-            raw.math.quat.multiply(j.ik_rotate, j.ik_rotate, q2);
-            raw.math.quat.multiply(roti[i], roti[i - 1], j.ik_rotate);
-            //vec3 currentHinge = joint.rotation * axis;
-            //vec3 desiredHinge = parent.rotation * axis;
-            //mChain[i].rotation = mChain[i].rotation *fromToRotation(currentHinge,desiredHinge);
-          }
-
-          i++;
-        }
-
-        for (i = clen; i > 0; i--) {
-          raw.math.vec3.subtract(posi[i], posi[i], posi[i - 1]);
-        }
-
-        for (i = 1; i < clen + 1; i++) {
-          j = ch[i];
-          //raw.math.vec3.subtract(v1, posi[i], posi[i - 1]);
-          raw.math.vec3.transform_quat(v3, j.transform.position, roti[i - 1]);
-          raw.math.vec3.add(posi[i], posi[i - 1], v3);
-        }
-
-
-
-        v1[0] = posi[clen][0] - tg[0];
-        v1[1] = posi[clen][1] - tg[1];
-        v1[2] = posi[clen][2] - tg[2];
-
-
-        ln = (v1[0] * v1[0] + v1[1] * v1[1] + v1[2] * v1[2]);
-        chain._ln = ln;
-        chain._thg = thg;
-        if (ter > 0 && ln < thg) {
-          break;
-        }
-
-
-
-
-        ter++;
-      }
-
-      return true;
-      for (i = clen - 1; i > 0; i--) {
-        // limit_joint(ch[i], ch[i].limit);
-      }
-
-
-      i = 0;
-      while (i < clen) {
-        j = ch[i];
-        raw.math.vec3.subtract(v1, posi[i + 1], posi[i]);
-
-        raw.math.vec3.to_polar(v3, v1);
-
-        raw.math.vec3.normalize(v1, v1);
-        raw.math.quat.rotation_to(q1, raw.math.V3_Y, v1);
-
-        /*
-        raw.math.quat.set_axis_anglex(q2, 0, 1, 0, v3[0]);
-        raw.math.quat.set_axis_anglex(q3, 1, 0, 0, v3[1]);
-
-        raw.math.quat.multiply(q1, q2, q3);
-
-        raw.math.quat.normalize(q1, q1);
-        */
-
-
-
-
-        if (i > 0) {
-
-          raw.math.quat.invert(q2, roti[i - 1]);
-          raw.math.quat.multiply(j.ik_rotate, q2, q1);
-          raw.math.quat.multiply(roti[i], roti[i - 1], j.ik_rotate);
-        }
-        else {
-          if (j.transform.parent !== null) {
-            raw.math.quat.invert(q2, j.transform.parent.rotation_world);
-            raw.math.quat.multiply(j.ik_rotate, q2, q1);
-            raw.math.quat.multiply(roti[i], j.transform.parent.rotation_world, j.ik_rotate);
-          }
-          else {
-            raw.math.quat.copy(roti[i], j.ik_rotate);
-            raw.math.quat.copy(j.ik_rotate, q1);
-          }
-
-        }
-        i++;
-      }
-
-      return true;
-
-      i = 0;
-      while (i < clen) {
-        j = ch[i];
-        raw.math.vec3.subtract(v1, posi[i + 1], posi[i]);
-        raw.math.vec3.normalize(v1, v1);
-        if (i > 0) {
-          raw.math.quat.rotation_to(q1, raw.math.V3_Y, v1);
-          raw.math.quat.invert(q2, roti[i - 1]);
-          raw.math.quat.multiply(j.ik_rotate, q2, q1);
-          raw.math.quat.multiply(roti[i], roti[i - 1], j.ik_rotate);
-        }
-        else {
-          if (j.transform.parent !== null) {
-            raw.math.quat.rotation_to(q1, raw.math.V3_Y, v1);
-            raw.math.quat.invert(q2, j.transform.parent.rotation_world);
-            raw.math.quat.multiply(j.ik_rotate, q2, q1);
-            raw.math.quat.multiply(roti[i], j.transform.parent.rotation_world, j.ik_rotate);
-          }
-          else {
-            raw.math.quat.rotation_to(j.ik_rotate, raw.math.V3_Y, v1);
-            raw.math.quat.copy(roti[i], j.ik_rotate);
-          }
-
-        }
-        i++;
-      }
-
-      return true;
-
-    }
-
-
-  })();
-
-  proto.resolve_ik_chain2 = (function () {
-
-    var i = 0, ln = 0, j = null, lp, p, tg, ch, clen = 0,
-      posi = [], roti = [0, 0, 0, 0], q1 = [0, 0, 0, 0], q2 = [0, 0, 0, 0];
-
-    var v1x, v1y, v1z, v2x, v2y, v2z;
-
-    var thr = 0.01, thg = thr * thr, ter = 0;
-    var v1 = [], v2 = [], cv = [],vn=[];
-
-    var a0, a1, a2, a3, det;
-    for (i = 0; i < 10; i++) {
-      posi[i] = [0, 0, 0];
-    }
-    window.posi = posi;
-
-
-    proto.resolve_ik_chain_backword = function (chain) {
-      ch = chain.joints;
-      tg = chain.effector.position_world;
-      clen = ch.length - 1;
-      lp = tg;
-      i = clen - 1;
-
-      ch[clen].transform.position_world[0] = tg[0];
-      ch[clen].transform.position_world[1] = tg[1];
-      ch[clen].transform.position_world[2] = tg[2];
-
-      while (i > -1) {
-        p = ch[i].transform.position_world;
-        v1x = p[0] - lp[0];
-        v1y = p[1] - lp[1];
-        v1z = p[2] - lp[2];
-        ln = v1x * v1x + v1y * v1y + v1z * v1z;
-        ln = ln > 0 ? 1 / Math.sqrt(ln) : ln;
-        v1x *= ln; v1y *= ln; v1z *= ln;
-        ln = ch[i + 1].length;
-        p[0] = lp[0] + v1x * ln;
-        p[1] = lp[1] + v1y * ln;
-        p[2] = lp[2] + v1z * ln;
-        lp = p;
-        i--;
-      }
-    };
-
-    proto.resolve_ik_chain_forward = function (chain) {
-      ch = chain.joints;
-      tg = chain.effector.position_world;
-      clen = ch.length - 1;      
-      lp = chain.root_pos;
-      i = 1;
-      raw.math.vec3.copy(chain.root.transform.position_world,chain.root_pos);
-      while (i <= clen) {
-        p = ch[i].transform.position_world;
-        v1x = p[0] - lp[0]; v1y = p[1] - lp[1]; v1z = p[2] - lp[2];
-        ln = v1x * v1x + v1y * v1y + v1z * v1z;
-        ln = ln > 0 ? 1 / Math.sqrt(ln) : ln;
-        v1x *= ln; v1y *= ln; v1z *= ln;
-        ln = ch[i].length;
-        p[0] = lp[0] + v1x * ln;
-        p[1] = lp[1] + v1y * ln;
-        p[2] = lp[2] + v1z * ln;
-        lp = p;
-        i++;
-      }
-    };
-
-    proto.resolve_ik_chain_rotations = function (chain) {
-      ch = chain.joints;
-      tg = chain.effector.position_world;
-      clen = ch.length - 1;
-
-      i = 0;
-      if (ch[0].transform.parent !== null) {
-        lp = ch[0].transform.parent.rotation_world;
-        roti[0] = lp[0]; roti[1] = lp[1]; roti[2] = lp[2]; roti[3] = lp[3];
-      }
-      else {
-        roti[0] = 0; roti[1] = 0; roti[2] = 0; roti[3] = 1;
-      }
-      while (i < clen) {
-        j = ch[i];
-        p = ch[i].transform.position_world;
-        lp = ch[i + 1].transform.position_world;
-        v1x = lp[0] - p[0]; v1y = lp[1] - p[1]; v1z = lp[2] - p[2];
-
-        ln = v1x * v1x + v1y * v1y + v1z * v1z;
-        ln = ln > 0 ? 1 / Math.sqrt(ln) : ln;
-        v1x *= ln; v1y *= ln; v1z *= ln;
-
-
-        //raw.math.quat.rotation_to2(q1, raw.math.V3_Y, v1);
-        // ln = 0 * v1x + 1 * v1y + 0 * v1z;
-        q1[0] = v1z;// 1 * v1z - 0 * v1y;
-        q1[1] = 0; // 0 * v1x - 0 * v1z;
-        q1[2] = -v1x; // 0 * v1y - 1 * v1x;
-        q1[3] = 1 + v1y;// 1 + ln;
-
-
-        //raw.math.quat.normalize(q1, q1);
-        ln = q1[0] * q1[0] + q1[1] * q1[1] + q1[2] * q1[2] + q1[3] * q1[3];
-        ln = ln > 0 ? 1 / Math.sqrt(ln) : ln;
-        q1[0] *= ln;
-        q1[1] *= ln;
-        q1[2] *= ln;
-        q1[3] *= ln;
-
-
-
-        // raw.math.quat.invert(q2, roti);
-        a0 = roti[0]; a1 = roti[1]; a2 = roti[2]; a3 = roti[3];
-        det = a0 * a0 + a1 * a1 + a2 * a2 + a3 * a3;
-        det = det > 0 ? 1.0 / det : 0;
-        q2[0] = -a0 * det;
-        q2[1] = -a1 * det;
-        q2[2] = -a2 * det;
-        q2[3] = a3 * det;
-
-        raw.math.quat.multiply(j.transform.rotation, q2, q1);
-        raw.math.quat.multiply(roti, roti, j.transform.rotation);
-
-        //raw.math.quat.normalize(j.transform.rotation, j.transform.rotation);
-
-        p = j.transform.rotation_world;
-        p[0] = roti[0];
-        p[1] = roti[1];
-        p[2] = roti[2];
-        p[3] = roti[3];
-
-        //raw.math.quat.normalize(p, p);
-
-
-        j.transform.require_update = 100;
-
-
-        i++;
-      }
-    
-    };
-
-
-    return function (chain, iter) {
-      ch = chain.joints;
-      tg = chain.effector.position_world;
-      clen = ch.length - 1;
-
-      p = ch[clen].transform.position_world;
-      lp = tg;
-      v1x = p[0] - lp[0]; v1y = p[1] - lp[1]; v1z = p[2] - lp[2];
-      ln = v1x * v1x + v1y * v1y + v1z * v1z;
-      if (ln < thg) {
-        return false;
-      }
-
-      for (i = 0; i < clen; i++) {
-        j = ch[i];
-        posi[i][0] = j.transform.position_world[0];
-        posi[i][1] = j.transform.position_world[1];
-        posi[i][2] = j.transform.position_world[2];
-      }
-
-      ter = 0;
-
-
-
-      while (ter < iter) {
-        lp = tg;
-
-
-        posi[clen][0] = tg[0];
-        posi[clen][1] = tg[1];
-        posi[clen][2] = tg[2];
-
-
-        i = clen - 1;
-
-        while (i > -1) {
-          p = posi[i];
-          v1x = p[0] - lp[0];
-          v1y = p[1] - lp[1];
-          v1z = p[2] - lp[2];
-          ln = v1x * v1x + v1y * v1y + v1z * v1z;
-          ln = ln > 0 ? 1 / Math.sqrt(ln) : ln;
-          v1x *= ln; v1y *= ln; v1z *= ln;
-          ln = ch[i + 1].length;
-          p[0] = lp[0] + v1x * ln;
-          p[1] = lp[1] + v1y * ln;
-          p[2] = lp[2] + v1z * ln;
-          lp = p;
-          i--;
-        }
-
-
-     
-
-        chain.root_pos[0] = posi[0][0];
-        chain.root_pos[1] = posi[0][1];
-        chain.root_pos[2] = posi[0][2];
-
-
-        lp = chain.root.transform.position_world;
-        i = 1;
-
-        while (i <= clen) {
-          p = posi[i]; 
-          v1x = p[0] - lp[0]; v1y = p[1] - lp[1]; v1z = p[2] - lp[2];
-          ln = v1x * v1x + v1y * v1y + v1z * v1z;
-          ln = ln > 0 ? 1 / Math.sqrt(ln) : ln;
-          v1x *= ln; v1y *= ln; v1z *= ln;
-          ln = ch[i].length;
-          p[0] = lp[0] + v1x * ln;
-          p[1] = lp[1] + v1y * ln;
-          p[2] = lp[2] + v1z * ln;
-          lp = p;
-          i++;
-        }
-
-      
-
-
-        p = posi[clen];
-        lp = tg;
-        v1x = p[0] - lp[0]; v1y = p[1] - lp[1]; v1z = p[2] - lp[2];
-
-        ln = v1x * v1x + v1y * v1y + v1z * v1z;
-        if (ln < thg) {
-          break;
-        }
-
-        ter++;
-      }
-
-      for (i = 1; i <= clen; i++) {
-        j = ch[i];
-        if (j.limit_movement !== undefined) {
-          if (i > 1) {
-            raw.math.vec3.subtract(v2, posi[i - 1], posi[i - 2]);
-            raw.math.vec3.normalize(vn, v2);
-            raw.math.vec3.scale(v2, vn, j.length);
-            raw.math.vec3.add(v2, posi[i - 1], v2);
-          }
-          else {
-            raw.math.vec3.subtract(v2, posi[i - 1], j.parent.transform.parent.position_world);
-            ln = raw.math.vec3.get_length(v2);
-            if (ln === 0) {
-              raw.math.vec3.normalize(vn, raw.math.V3_Y);
-            }
-            else {
-              raw.math.vec3.normalize(vn, v2);
-            }
-            raw.math.vec3.scale(v2, vn, j.length);
-            raw.math.vec3.add(v2, v2, posi[i - 1]);
-          }
-
-
-          raw.math.vec3.subtract(cv, posi[i], v2);
-
-          ln = Math.sqrt(cv[0] * cv[0] + cv[1] * cv[1] + cv[2] * cv[2]);
-
-          if (ln > j.limit_movement) {
-            // raw.math.vec3.subtract(cv, posi[i], v2);
-            raw.math.vec3.normalize(cv, cv);
-            //raw.math.vec3.scale_add(posi[i], posi[i], cv,j.limit_movement - ln);
-            /*
-            raw.math.vec3.subtract(cv, posi[i], v2);
-            raw.math.vec3.normalize(cv, cv);
-            raw.math.vec3.scale_add(cv, v2, cv, j.limit_movement);
-            raw.math.vec3.subtract(cv, cv, posi[i - 1]);
-            raw.math.vec3.normalize(cv, cv);
-            raw.math.vec3.scale_add(posi[i], posi[i - 1], cv, j.length);
-            */
-          }
-
-        }
-
-      }
-
-
-
-      posi[0][0] = chain.root.transform.position_world[0];
-      posi[0][1] = chain.root.transform.position_world[1];
-      posi[0][2] = chain.root.transform.position_world[2];
-
-      i = 0;
-      if (ch[0].transform.parent !== null) {
-        lp = ch[0].transform.parent.rotation_world;
-        roti[0] = lp[0]; roti[1] = lp[1]; roti[2] = lp[2]; roti[3] = lp[3];
-      }
-      else {
-        roti[0] = 0; roti[1] = 0; roti[2] = 0; roti[3] = 1;
-      }
-      while (i < clen) {
-        j = ch[i];
-        p = posi[i];
-        lp = posi[i + 1];
-        v1x = lp[0] - p[0]; v1y = lp[1] - p[1]; v1z = lp[2] - p[2];
-
-        ln = v1x * v1x + v1y * v1y + v1z * v1z;
-        ln = ln > 0 ? 1 / Math.sqrt(ln) : ln;
-        v1x *= ln; v1y *= ln; v1z *= ln;
-
-
-        //raw.math.quat.rotation_to2(q1, raw.math.V3_Y, v1);
-        // ln = 0 * v1x + 1 * v1y + 0 * v1z;
-        q1[0] = v1z;// 1 * v1z - 0 * v1y;
-        q1[1] = 0; // 0 * v1x - 0 * v1z;
-        q1[2] = -v1x; // 0 * v1y - 1 * v1x;
-        q1[3] = 1 + v1y;// 1 + ln;
-
-
-        //raw.math.quat.normalize(q1, q1);
-        ln = q1[0] * q1[0] + q1[1] * q1[1] + q1[2] * q1[2] + q1[3] * q1[3];
-        ln = ln > 0 ? 1 / Math.sqrt(ln) : ln;
-        q1[0] *= ln;
-        q1[1] *= ln;
-        q1[2] *= ln;
-        q1[3] *= ln;
-
-
-
-        // raw.math.quat.invert(q2, roti);
-        a0 = roti[0]; a1 = roti[1]; a2 = roti[2]; a3 = roti[3];
-        det = a0 * a0 + a1 * a1 + a2 * a2 + a3 * a3;
-        det = det > 0 ? 1.0 / det : 0;
-        q2[0] = -a0 * det;
-        q2[1] = -a1 * det;
-        q2[2] = -a2 * det;
-        q2[3] = a3 * det;
-
-        raw.math.quat.multiply(j.transform.rotation, q2, q1);
-        raw.math.quat.multiply(roti, roti, j.transform.rotation);
-
-
-        
-        if (i > 0) {
-          p = posi[i];
-          lp = j.transform.position_world;
-          lp[0] = p[0];
-          lp[1] = p[1];
-          lp[2] = p[2];
-
-
-
-
-        }
-
-        p = j.transform.rotation_world;
-        p[0] = roti[0];
-        p[1] = roti[1];
-        p[2] = roti[2];
-        p[3] = roti[3];
-
-        
-        /*
-        else {
-
-          j.ik_count++;
-
-          p = j.ik_rotate;
-          p[0] += roti[0];
-          p[1] += roti[1];
-          p[2] += roti[2];
-          p[3] += roti[3];
-
-          
-          p = posi[i];
-          lp = j.ik_pos;
-          lp[0] += p[0];
-          lp[1] += p[1];
-          lp[2] += p[2];
-          
-
-        }
-        */
-
-        j.transform.require_update = 100;
-
-
-        i++;
-      }
-      
-      p = posi[clen];
-      lp = ch[clen].transform.position_world
-      lp[0] = p[0];
-      lp[1] = p[1];
-      lp[2] = p[2];
-      ch[clen].transform.require_update = 100;
-      
-
-      return true;
-
-    }
-
-  })();
-
-
-
-  var skeleton = null, joints_changed = false, temp_dquat = [0, 0, 0, 1];
-  var ik = 0, k = 0, v1 = [0, 0, 0], v2 = [0, 0, 0];
-
-
-  proto.resolve_ik = function (skeleton) {
-    for (ik = 0; ik < skeleton.ik_chains.length; ik++) {
-      ik_chain = skeleton.ik_chains[ik];
-      if (!ik_chain.enabled) continue;
-      if (this.resolve_ik_chain(ik_chain, 10)) {
-        ik_chain.root.ik_chain_updated = true;
-
-        this.ecs.systems['transform_system'].process(skeleton.transforms, 1);
-      }
-
-    }
-
-  }
-
-  proto.resolve_ik3 = function (skeleton) {
-    for (ik = 0; ik < skeleton.ik_chains.length; ik++) {
-      ik_chain = skeleton.ik_chains[ik];
-      if (!ik_chain.enabled) continue;
-      vec3.copy(ik_chain.root_pos, ik_chain.root.transform.position_world);
-      if (this.resolve_ik_chain(ik_chain, 1)) {
-        ik_chain.root.ik_chain_updated = true;
-        this.ecs.systems['transform_system'].process(skeleton.transforms, 1);
-      }
-    }
-
-    for (ik = 0; ik < skeleton.ik_trackers.length; ik++) {
-      ik_chain = skeleton.ik_trackers[ik];
-      raw.math.vec3.set(v1, 0, 0, 0);
-      for (k = 0; k < ik_chain.positions.length; k++) {
-        raw.math.vec3.add(v1, v1, ik_chain.positions[k]);
-      }
-      raw.math.vec3.scale(ik_chain.tracker, v1, 1 / ik_chain.positions.length);
-
-    };
-
-
-
-
-
-  }
-
-  proto.resolve_ik2 = function (skeleton) {
-
-
-    for (ik = 0; ik < skeleton.ik_chains.length; ik++) {
-
-      ik_chain = skeleton.ik_chains[ik];
-      if (!ik_chain.enabled) continue;
-      raw.math.vec3.copy(ik_chain.root_pos, ik_chain.root.transform.position_world);
-      this.resolve_ik_chain_backword(ik_chain);
-    };
-
-    for (ik = 0; ik < skeleton.ik_trackers.length; ik++) {
-      ik_chain = skeleton.ik_trackers[ik];
-      raw.math.vec3.set(v1, 0, 0, 0);
-      for (k = 0; k < ik_chain.transforms.length; k++) {
-        raw.math.vec3.add(v1, v1, ik_chain.transforms[k].position_world);
-      }
-      raw.math.vec3.scale(ik_chain.tracker.position_world,
-        v1, 1 / ik_chain.transforms.length);
-
-    };
-
-    for (ik = 0; ik < skeleton.ik_chains.length; ik++) {
-      ik_chain = skeleton.ik_chains[ik];
-      if (!ik_chain.enabled) continue;
-      this.resolve_ik_chain_forward(ik_chain);
-    };
-
-    for (ik = 0; ik < skeleton.ik_chains.length; ik++) {
-      ik_chain = skeleton.ik_chains[ik];
-      if (!ik_chain.enabled) continue;
-      this.resolve_ik_chain_rotations(ik_chain);
-    };
-
-    this.ecs.systems['transform_system'].process(skeleton.transforms, 1);
-  }
-
-
+  var trans = null, entity = null, item = null, i = 0;
   proto.step = function () {
-    this.skeleton_display_mesh.DP.clear();
-    this.display_skeletons.length = 0;
-    while ((skeleton = this.ecs.iterate_entities("skeleton")) !== null) {
-      if (skeleton.skeleton.display) {
-        this.display_skeletons[this.display_skeletons.length] = skeleton;
-      }
-      trans = skeleton.transform;
-      skeleton = skeleton.skeleton;
-      if (!skeleton.initialized) {
-        this.initialize_skeleton(skeleton);
-      }
-
-
-      this.resolve_ik(skeleton);
-
-     
-
-
-
-    }
-
-    while ((skeleton = this.ecs.iterate_entities("skeleton")) !== null) {
-
-      trans = skeleton.transform;
-      skeleton = skeleton.skeleton;
-      joints_changed = false;
-      for (i = 0; i < skeleton.skinned_joints.length; i++) {
-        joint = skeleton.skinned_joints[i];
-        if (joint && joint.transform.require_update !== 0) {
-          raw.math.dquat.from_quat_pos(temp_dquat, joint.transform.rotation_world, joint.transform.position_world);
-          raw.math.dquat.multiply(joint.joint_transform, temp_dquat, joint.bind_transform);          
-          joints_changed = true;
+    this.worked_items = 0;
+    while ((entity = this.ecs.iterate_entities("render_item")) !== null) {
+      trans = entity.transform;
+      if (trans.require_update !== 0) {
+        for (i = 0; i < entity.render_item.items.length; i++) {
+          item = entity.render_item.items[i]
+          raw.math.quat.to_mat4(item.matrix_world, trans.rotation_world);
+          raw.math.mat4.scale(item.matrix_world, trans.scale_world);
+          item.matrix_world[12] = trans.position_world[0];
+          item.matrix_world[13] = trans.position_world[1];
+          item.matrix_world[14] = trans.position_world[2];
+          item.update_bounds(item.matrix_world, trans);
+          this.worked_items++;
+          if (item.item_type === 1024) {
+            item.initialize_item();
+          }
         }
-      }
-      if (joints_changed) skeleton.version += 0.000001;
-    }
-
-
-  };
-  var i = 0, v1 = raw.math.vec3();
-
-  proto.initialize_skeleton = function (skeleton) {
-    if (skeleton.initialized) return;
-    //this.set_zero_pos(skeleton);
-    
-    this.set_bind_pos(skeleton);
-
-
-    skeleton.initialized = true;
-  }
-
-  proto.set_bind_pos = function (skeleton) {
-    for (i = 0; i < skeleton.joints.length; i++) {
-      joint = skeleton.joints[i];
-
-      skeleton.transforms[skeleton.transforms.length] = joint.transform;
-
-      if (joint.skin_index > -1 && joint.set_bind_pos) {
-        raw.math.dquat.from_quat_pos(joint.bind_transform,
-          joint.transform.rotation_world, joint.transform.position_world);
-        raw.math.dquat.invert(joint.bind_transform, joint.bind_transform);
-      }
-            
-      
-      if (joint.bind_transform) {
-     //   raw.math.vec3.copy(joint.transform.bind_pos, joint.transform.position_world);
-       // raw.math.quat.copy(joint.transform.bind_rot, joint.transform.rotation);
-      }
-      
-      
-      if (joint.transform.parent !== null) {
-        raw.math.vec3.subtract(v1, joint.transform.position_world, joint.transform.parent.position_world);
-        joint.length = raw.math.vec3.get_length(v1);
-      }
-      else {
-        joint.length = raw.math.vec3.get_length(joint.transform.position_world);
-      }
-
-    }
-  };
-
-  proto.set_zero_pos = function (skeleton) {
-    for (i = 0; i < skeleton.joints.length; i++) {
-      joint = skeleton.joints[i];
-      joint.set_bind_pos = true;
-      if (joint.transform.parent !== null) {
-        raw.math.vec3.subtract(joint.transform.position,
-          joint.transform.position_world, joint.transform.parent.position_world);
-        raw.math.quat.identity(joint.transform.rotation);
+        entity.render_item.version += 0.000001;
       }
     }
   };
-
   proto.validate = function (ecs) {
-    ecs.use_component("render_item");
-    this.priority = ecs.use_system('transform_system').priority + 100;
-    this.setup_skeleton_display(ecs);
+    this.priority = ecs.use_system('render_list_system').priority - 100;
   };
 
-  proto.setup_skeleton_display = (function () {
-    var i = 0, k = 0, joint = null;
-    var geo = raw.geometry.cube({ width: 2, depth: 2 });
-    for (i = 0; i < geo.attributes.a_position_rw.data.length; i += 3) {
-      if (geo.attributes.a_position_rw.data[i + 1] > 0.3 ) {
-        geo.attributes.a_position_rw.data[i] *= 0.35;
-        geo.attributes.a_position_rw.data[i + 2] *= 0.35;
-      }
-      else {
-        if (geo.attributes.a_position_rw.data[i] > 0) {
-          // geo.attributes.a_position_rw.data[i] *= 4;
-        }
-      }
-    }
-    geo.scale_position_rotation(0.1, 1, 0.1, 0, 0.5, 0, 0, 0, 0);    
-    var mat = new raw.shading.shaded_material({ ambient: [0.5, 0.5, 0.5] });
-    mat.flags += 8;
-    mat.shader2 = mat.shader.extend(`
-uniform vec3 u_bone_start;
-uniform vec3 u_bone_end;
-uniform vec3 u_skeleton_pos;
 
-
-mat3 rotate_bone( vec3 u2)
-{
-    vec3 u1=vec3(0.0,1.0,0.0);
-    vec3 axis = cross( u1, u2 );
-    float cosA = dot( u1, u2 );
-    float k = 1.0 / (1.0 + cosA);  
-
-    return mat3 ( (axis.x * axis.x * k) + cosA,(axis.y * axis.x * k) - axis.z, 
-                 (axis.z * axis.x * k) + axis.y,(axis.x * axis.y * k) + axis.z,  
-                 (axis.y * axis.y * k) + cosA, (axis.z * axis.y * k) - axis.x,
-                 (axis.x * axis.z * k) - axis.y,  (axis.y * axis.z * k) + axis.x,  (axis.z * axis.z * k) + cosA 
-                 );
-
-}
-
-void vertex(){
-    super_vertex();
-    v_position_rw=vec4(a_position_rw,1.0);    
-    vec3 dir=(u_bone_end-u_bone_start);
-    float len=length(dir);   
-    v_position_rw.y*=len;
-    v_position_rw.xz*=min(len,1.0);
-    v_position_rw.xyz*=rotate_bone(normalize(dir));
-    v_position_rw.xyz+=u_bone_start;
-    v_position_rw.xyz+=u_skeleton_pos;
-    gl_Position=u_view_projection_rw*u_model_rw*v_position_rw;
-}
-`);
-
-
-    var axis_geo = raw.geometry.create({
-      vertices: new Float32Array([
-        0, 0, 0, 0.5, 0, 0,
-        0, 0, 0, 0, 1, 0,
-        0, 0, 0, 0, 0,0.5
-      ]),
-      colors: new Float32Array([
-        1, 0, 0, 1, 1, 0, 0, 1,
-        0, 1, 0, 1, 0, 1, 0, 1,
-        0, 0, 1, 1, 0, 0, 1, 1,
-      ])
-    });
-
-    mat.shader = mat.shader.extend(`
-uniform vec4 u_joint_qr;
-uniform vec3 u_bone_start;
-uniform vec3 u_bone_end;
-uniform vec3 u_skeleton_pos;
-<?=chunk('quat-dquat')?>
-
-void vertex(){
-  super_vertex();
-  v_position_rw=vec4(a_position_rw,1.0);          
-  float len=length((u_bone_end-u_bone_start));
-  v_position_rw.xz*=min(len,1.0);
-  v_position_rw.y*=len;  
-  v_position_rw.xyz=quat_transform(u_joint_qr,v_position_rw.xyz);  
-  v_position_rw.xyz+=u_bone_start; //+u_skeleton_pos;
-  gl_Position=u_view_projection_rw*v_position_rw;
-}
-`);
-
-    mat.shader_axis = raw.webgl.shader.parse(`
-attribute vec3 a_position_rw;
-attribute vec4 a_color_rw;
-uniform mat4 u_view_projection_rw;
-uniform vec4 u_joint_qr;
-uniform vec3 u_bone_start;
-uniform vec3 u_bone_end;
-uniform vec3 u_skeleton_pos;
-
-varying vec4 v_color_rw;
-<?=chunk('quat-dquat')?>
-void vertex(){  
-float len=max(length(u_bone_end-u_bone_start),0.5);
- vec4 v_position_rw=vec4(a_position_rw,1.0);   
-v_position_rw.y*=len;
-//v_position_rw.xz*=len*0.25;
-  v_position_rw.xyz=quat_transform(u_joint_qr,v_position_rw.xyz);  
-  v_position_rw.xyz+=u_bone_start; //+u_skeleton_pos;
- v_color_rw=a_color_rw;
-  gl_Position=u_view_projection_rw*v_position_rw;
- 
-}
-<?=chunk('precision')?>
-
-varying vec4 v_color_rw;
-void fragment(void) {	
-    gl_FragColor =v_color_rw;
-}
-`);
-
-
-    var obj_material = raw.math.mat4(), pos = null;
-
-    mat.complete_render_mesh2 = function (renderer, shader, mesh) {
-
-      for (k = 0; k < mesh.sys.display_skeletons.length; k++) {
-        skeleton = mesh.sys.display_skeletons[k];
-
-        for (i = 0; i < skeleton.skeleton._ik_targets.length; i++) {
-          pos = skeleton.skeleton._ik_targets[i].position_world;
-          mesh.DP.add(
-            pos[0],
-            pos[1],
-            pos[2],
-            1, 0, 0, 20);
-        }
-
-
-        for (i = 0; i < skeleton.skeleton.joints.length; i++) {
-          joint = skeleton.skeleton.joints[i];
-          if (joint.transform.parent !== null) {
-            shader.set_uniform("u_bone_start", joint.transform.parent.position_world);
-            shader.set_uniform("u_bone_end", joint.transform.position_world);
-            shader.set_uniform("u_bone_scale", joint.transform.parent.scale);
-            shader.set_uniform("u_skeleton_pos", skeleton.transform.position_world);
-
-            renderer.gl.drawElements(this.final_draw_type, this.final_draw_count, 5125, 0);
-          }
-        }
-      }
-    };
-
-    var qr = raw.math.quat(), qd = raw.math.quat(), vv = raw.math.vec3(), qq = null;
-    
-    mat.render_mesh = function (renderer, shader, mesh) {      
-      renderer.gl.enable(2884);
-      renderer.gl.enable(2929);
-      shader.set_uniform("u_object_material_rw", this.object_material);
-      shader.set_uniform("u_texture_matrix_rw", this.texture_matrix);
-      renderer.use_texture(this.texture, 0);
-
-      renderer.activate_geometry_index_buffer(mesh.geometry, false);
-      
-      for (k = 0; k < mesh.sys.display_skeletons.length; k++) {
-        skeleton = mesh.sys.display_skeletons[k];
-        shader.set_uniform("u_skeleton_pos", skeleton.transform.position_world);
-        for (i = 0; i < skeleton.skeleton.skinned_joints.length; i++) {
-          joint = skeleton.skeleton.skinned_joints[i];
-          if (joint && joint.parent !== null) {                                 
-
-            shader.set_uniform("u_bone_end", joint.transform.position_world);
-            shader.set_uniform("u_bone_start", joint.transform.parent.position_world);
-            shader.set_uniform("u_joint_qr", joint.transform.parent.rotation_world);
-                       
-
-            renderer.gl.drawElements(4, mesh.draw_count, 5125, 0);
-          }
-        }
-      }
-
-      if (shader.shadow_shader) return;
-      renderer.use_shader(this.shader_axis);
-      
-      this.shader_axis.set_uniform("u_view_projection_rw", renderer.active_camera.view_projection);
-      renderer.use_geometry(axis_geo);
-
-      //renderer.gl.disable(2929);
-
-      for (k = 0; k < mesh.sys.display_skeletons.length; k++) {
-        skeleton = mesh.sys.display_skeletons[k];
-        this.shader_axis.set_uniform("u_skeleton_pos", skeleton.transform.position_world);
-        for (i = 0; i < skeleton.skeleton.joints.length; i++) {
-          joint = skeleton.skeleton.joints[i];
-          if (joint.parent !== null) {
-            if (joint.skin_index > -1) {
-              this.shader_axis.set_uniform("u_bone_start", joint.transform.parent.position_world);
-              this.shader_axis.set_uniform("u_joint_qr", joint.transform.parent.rotation_world);
-              this.shader_axis.set_uniform("u_bone_end", joint.transform.position_world);
-            }
-            else {
-              this.shader_axis.set_uniform("u_bone_start", joint.transform.position_world);
-              this.shader_axis.set_uniform("u_joint_qr", joint.transform.rotation_world);
-              this.shader_axis.set_uniform("u_bone_end", joint.transform.position_world);
-            }
-            
-            renderer.gl.drawArrays(1, 0, axis_geo.num_items);
-          }
-        }
-      }
-
-      //renderer.gl.enable(2929);
-
-    };
-
-
-    return function (ecs) {
-      if (this.skeleton_display_mesh) return;
-      this.skeleton_display_mesh = new raw.rendering.mesh({
-        geometry: geo, material: mat
-      });
-      this.skeleton_display_mesh.DP = new raw.rendering.debug_points();
-      this.skeleton_display_mesh.DL = new raw.rendering.debug_lines();
-
-      this.skeleton_display_mesh.flags += 1;
-      this.skeleton_display_mesh.sys = this;
-      this.skeleton_display = ecs.create_entity({
-        components: {
-          'transform': {},
-          'render_item': {
-            items: [
-              this.skeleton_display_mesh
-              , this.skeleton_display_mesh.DP
-              , this.skeleton_display_mesh.DL
-            ]
-          }
-        }
-      });
-
-    }
-
-  })();
-
-
-
-  proto.bind_animation_targets = (function () {
-    var tar = null, joint = null;
-    return function (skeleton, targets) {
-      for (i = 0; i < targets.length; i++) {
-        tar = targets[i];
-        joint = skeleton[tar.name];
-        if (joint) {
-
-          this.ecs.components['transform'].set_anim_target(joint.transform, tar);
-          ///joint.transform.flags = raw.set_flag(joint.transform.flags, 4);
-          //joint.transform.anim_target =tar
-        }
-      }
-    }
-  })();
-
-  return function skeleton_system(def) {
+  return function render_item_system(def) {
     _super.apply(this, [def]);
-    this.display_skeletons = [];
   }
 
 }, raw.ecs.system));
 
-
-
-raw.skeleton_system.mesh = raw.define(function (proto, _super) {
-
-
-  var skin_material_on_before_render = (function () {
-    var qr = raw.math.quat(), qd = raw.math.quat(), qq = null, ske = null, j = null, i = 0;
-    return function (renderer, shader, mesh) {
-      ske = mesh.skeleton;
-      for (i = 0; i < ske.skinned_joints.length; i++) {
-        j = ske.skinned_joints[i];
-        qq = j.joint_transform;
-        qr[0] = qq[0];
-        qr[1] = qq[1];
-        qr[2] = qq[2];
-        qr[3] = qq[3];
-
-        qd[0] = qq[4];
-        qd[1] = qq[5];
-        qd[2] = qq[6];
-        qd[3] = qq[7];
-
-
-        shader.set_uniform("joint_qr[" + i + "]", qr);
-        shader.set_uniform("joint_qd[" + i + "]", qd);
-      }
-    }
-
-  })();
-  function skin_shader(mat) {
-    if (!mat.shader.skin_shader) {
-      mat.shader = mat.shader.extend(`
-attribute vec4 a_joints_indices;
-attribute vec4 a_joints_weights;
-
-uniform vec4 joint_qr[60];
-uniform vec4 joint_qd[60];
-
-vec3 dquat_transform(vec4 qr, vec4 qd, vec3 v)
-{
-   return (v + cross(2.0 * qr.xyz, cross(qr.xyz, v) + qr.w * v))+
-	  (2.0 * (qr.w * qd.xyz - qd.w * qr.xyz + cross(qr.xyz, qd.xyz)));    
-}
-vec3 dquat_transform2(vec4 qr, vec4 qd, vec3 v)
-{
-   return (v + cross(2.0 * qr.xyz, cross(qr.xyz, v) + qr.w * v));
-}
-
-vec4 _qr;
-vec4 _qd;
-vec4 att_position(void){
-    vec4 pos=super_att_position();
-vec4 w=a_joints_weights;
-int i0=int(a_joints_indices.x);
-int i1=int(a_joints_indices.y);
-int i2=int(a_joints_indices.z);
-int i3=int(a_joints_indices.w);
-
-
-vec4 dqr0 = joint_qr[i0];
-vec4 dqr1 = joint_qr[i1];
-vec4 dqr2 = joint_qr[i2];
-vec4 dqr3 = joint_qr[i3];
-if (dot(dqr0, dqr1) < 0.0) w.y *= -1.0;
-if (dot(dqr0, dqr2) < 0.0) w.z *= -1.0;
-if (dot(dqr0, dqr3) < 0.0) w.w *= -1.0;
-
-_qr=w.x*dqr0+w.y*dqr1+w.z*dqr2+w.w*dqr3;
-_qd=w.x*joint_qd[i0]+w.y*joint_qd[i1]+w.z*joint_qd[i2]+w.w*joint_qd[i3];
-float len =1.0/ length(_qr);
-_qr *= len;
-_qd *= len;
-
-pos.xyz=dquat_transform(_qr,_qd,pos.xyz);
-
-
-return pos;
-
-}
-vec4 att_normal(void){
-    return vec4(dquat_transform2(_qr,_qd,a_normal_rw),0.0);
-}
-
-void vertex(){
-super_vertex();
-}
-
-        `);      
-      mat.on_before_render.add(skin_material_on_before_render);
-      mat.shader.skin_shader = true;
-    }
-
-  }  
-
-  proto.normalize_skin_weights = function (geo) {
-    var skin_weights = geo.attributes.a_joints_weights;
-    var scale = 0;
-    for (var i = 0; i < skin_weights.data.length; i += 4) {
-      scale = 1.0 / (Math.abs(skin_weights.data[i]) + Math.abs(skin_weights.data[i + 1]) + Math.abs(skin_weights.data[i + 2]) + Math.abs(skin_weights.data[i + 3]))
-      if (scale !== Infinity) {
-        skin_weights.data[i] *= scale;
-        skin_weights.data[i + 1] *= scale;
-        skin_weights.data[i + 2] *= scale;
-        skin_weights.data[i + 3] *= scale;
-      } else {
-        skin_weights.data[i] = 1;
-        skin_weights.data[i + 1] = 0;
-        skin_weights.data[i + 2] = 0;
-        skin_weights.data[i + 3] = 0;
-      }
-
-    }
-  };
-
-  var bind_pos = raw.math.vec3(), bind_transform_inv = raw.math.dquat();
-
-
-  proto.skin_geometry = function (geo, ske) {
-    var ab = raw.math.vec3(), av = raw.math.vec3();
-    var i = 0, k = 0, j = null, ds = 0;
-    var d = [];
-    var v = geo.attributes["a_position_rw"].data;
-    var js = geo.add_attribute("a_joints_indices", { data: new Float32Array((v.length / 3) * 4), item_size: 4 });
-    var jw = geo.add_attribute("a_joints_weights", { data: new Float32Array((v.length / 3) * 4), item_size: 4 });
-    var pa, pb;
-    
-    var si = 0, vt = 0;
-    var v1 = [], v2 = [], bc = 0, jlen = 0;
-    //js.data.fill(-1);jw.data.fill(-1);
-
-    for (i = 0; i < v.length; i += 3) {
-      d.length = 0;
-      bc = 0;
-      for (k = 0; k < ske.skinned_joints.length; k++) {
-        j = ske.skinned_joints[k];
-        pa = j.transform.bind_pos;
-        pb = pa;
-        if (j.transform.parent !== null) {
-          pb = j.transform.parent.bind_pos;
-        }
-        raw.math.vec3.subtract(ab, pa, pb);
-
-        av[0] = v[i] - pa[0];
-        av[1] = v[i + 1] - pa[1];
-        av[2] = v[i + 2] - pa[2];
-
-        vt = raw.math.vec3.dot(ab, av) / (Math.abs(raw.math.vec3.get_length(ab)) || 1);
-
-
-        
-        if (vt >= 0 && vt <= 1) {          
-          d.push([Math.abs(vt), k, i / 3, av.join(), pa.join(),]);
-         // bc++;
-        }    
-
-
-       // raw.math.vec3.scale(v1, ab, vt);
-       // raw.math.vec3.add(v1, pa, v1);
-
-      }
-
-
-      if (bc < 1) {
-        console.log(v[0], v[1])
-        for (k = 0; k < ske.skinned_joints.length; k++) {
-          j = ske.skinned_joints[k];
-          pa = j.transform.bind_pos;
-
-          av[0] = v[i] - pa[0];
-          av[1] = v[i + 1] - pa[1];
-          av[2] = v[i + 2] - pa[2];
-
-          //d.push([(Math.abs(Math.abs(raw.math.vec3.get_length(av)) - j.length) / (j.length || 1)), k, i / 3]);
-          jlen = j.length || 1;
-          d.push([1-(raw.math.vec3.get_length(av) / jlen), k, i / 3]);
-
-
-        }
-
-      }
-     
-      d.sort(function (a, b) {
-        return a[0] - b[0];
-      });
-      si = (i / 3) * 4;
-      //console.log('-----------');
-      for (k = 0; k < Math.min(ske.skinned_joints.length, 4); k++) {
-        if (k < d.length) {
-          //  console.log(k+' '+ d[k].join("/"));
-          js.data[si + k] = d[k][1];
-          jw.data[si + k] = d[k][0];
-
-          if (k > 0 && jw.data[si + k] > 1) {
-            jw.data[si + k] = 0;
-          }
-          //  else jw.data[si + k] =1-Math.min(jw.data[si + k], 1);
-
-        }
-      }
-      
-
-    }/*
-    for (i = 0; i < v.length; i += 3) {
-      d.length = 0;
-      bc = 0;
-      si = (i / 3) * 4;
-      if (jw.data[si] !== -1) continue
-
-      for (k = 0; k < ske.skinned_joints.length; k++) {
-        j = ske.skinned_joints[k];
-        pa = j.transform.bind_pos;
-        vt = Math.abs(raw.math.vec3.distance2(
-          pa[0], pa[1], pa[2],
-          v[i], v[i + 1], v[i + 2])
-        );
-        d.push([ vt, k, i / 3, av.join(), pa.join(),]);
-      }
-      d.sort(function (a, b) {
-        return a[1] - b[1];
-      });      
-
-      if (d.length > 0) {
-        for (k = 0; k < Math.min(ske.skinned_joints.length, 4); k++) {
-          if (k < d.length) {
-            js.data[si + k] = d[k][1];
-            jw.data[si + k] = d[k][0];
-          }
-        }
-      }
-
-    }
-    for (i = 0; i < jw.data.length; i++) {
-      if (js.data[i] === -1) js.data[i] = 0;
-      if (jw.data[i] === -1) jw.data[i] = 0;
-    }
-    */
-    console.log(geo.attributes);
-    this.normalize_skin_weights(geo);
-    return;
-    var jpos = [], jlen = [];
-    
-
-
-    for (i = 0; i < ske.skinned_joints.length; i++) {
-      j = ske.skinned_joints[i];
-      raw.math.dquat.invert(bind_transform_inv, j.bind_transform);
-      raw.math.dquat.get_translation(bind_pos, bind_transform_inv);
-      if (j.transform.parent !== null) {
-        raw.math.vec3.subtract(v1, j.transform.position_world, j.transform.parent.position_world);
-        raw.math.vec3.normalize(v1, v1);
-        raw.math.vec3.scale(v2, v1, j.length * 0.5);
-       // jpos.push(raw.math.vec3.subtract([], j.transform.position_world, v2));
-        jpos.push([bind_pos[0], bind_pos[1], bind_pos[2]]);
-
-      }
-      else {
-        jpos.push([bind_pos[0], bind_pos[1], bind_pos[2]]);
-      }
-
-      jlen.push(j.length || 1);
-    }
-   
-
-    for (i = 0; i < v.length; i += 3) {
-      for (k = 0; k < jpos.length; k++) {
-        ds = Math.abs(raw.math.vec3.distance2(
-          jpos[k][0], jpos[k][1], jpos[k][2],
-          v[i], v[i + 1], v[i + 2])
-        );
-        d[k] = [k, ds];
-
-      }
-
-      d.sort(function (a, b) {
-        return a[1] - b[1];
-      });
-
-
-      for (k = 0; k < Math.min(jpos.length, 4); k++) {
-        js.data[si + k] = d[k][0];
-        jw.data[si + k] = (jlen[js.data[si + k]]) / d[k][1];        
-      }
-      si += 4;
-    }
-    console.log(jlen);
-    console.log(jpos);
-   // this.normalize_skin_weights(geo);
-    return geo;
-  };
-
-
-  proto.skin_geometry = function (geo, ske) {
-    var i = 0, k = 0, j = null, ds = 0;
-    var d = [];
-    var v = geo.attributes["a_position_rw"].data;
-    var js = geo.add_attribute("a_joints_indices", { data: new Float32Array((v.length / 3) * 4), item_size: 4 });
-    var jw = geo.add_attribute("a_joints_weights", { data: new Float32Array((v.length / 3) * 4), item_size: 4 });
-
-    var jpos = [], jlen = [], v1 = [], v2 = [];
-    for (i = 0; i < ske.skinned_joints.length; i++) {
-      j = ske.skinned_joints[i];
-
-      jpos.push(j.transform.bind_pos);
-      jlen.push(j.length || 1);
-    }
-    var si = 0;
-    for (i = 0; i < v.length; i += 3) {
-      for (k = 0; k < jpos.length; k++) {
-        ds = Math.abs(raw.math.vec3.distance2(jpos[k][0], jpos[k][1], jpos[k][2], v[i], v[i + 1], v[i + 2]));
-        d[k] = [k, ds ];
-
-      }
-
-      d.sort(function (a, b) {
-        return a[1] - b[1];
-      });
-
-      si = (i / 3) * 4;
-      for (k = 0; k < Math.min(jpos.length, 4); k++) {
-        js.data[si + k] =d[k][0];
-        jw.data[si + k] = (jlen[js.data[si + k]])/d[k][1]  ;
-
-        if (k > 0 && d[k][1] > jlen[js.data[si + k]]) {
-          jw.data[si + k] = 0;
-        }
-      }
-    }
-
-    this.normalize_skin_weights(geo);
-    for (i = 0; i < v.length; i += 3) {
-      si = (i / 3) * 4;
-      console.log((i / 3) +
-        ' ' + v[0] + "," + v[1] + "," + v[2]
-        + '/' + js.data[si] + "," + js.data[si + 1] + "," + js.data[si + 2] + "," + js.data[si + 3]
-        + '/' + (jw.data[si].toFixed(2)) + "," + (jw.data[si + 1].toFixed(2)) + "," + (jw.data[si + 2].toFixed(2)) + "," + (jw.data[si + 3].toFixed(2))
-      );
-    }
-    console.log(geo.attributes);
-    
-    return geo;
-  };
-
-
-  proto.skin_geometry = function (geo, ske) {
-    var i = 0, k = 0, j = null, ds = 0;
-    var d = [];
-    var v = geo.attributes["a_position_rw"].data;
-    var js = geo.add_attribute("a_joints_indices", { data: new Float32Array((v.length / 3) * 4), item_size: 4 });
-    var jw = geo.add_attribute("a_joints_weights", { data: new Float32Array((v.length / 3) * 4), item_size: 4 });
-
-    var jpos = [], jlen = [], v1 = [], v2 = [], bpos = null;
-    for (i = 0; i < ske.skinned_joints.length; i++) {
-      j = ske.skinned_joints[i];
-      bpos = j.transform.bind_pos;
-      if (j.transform.parent !== null) {
-        raw.math.vec3.subtract(v1, bpos, j.transform.parent.bind_pos);
-        raw.math.vec3.normalize(v1, v1);
-        raw.math.vec3.scale(v2, v1, j.length * 0.5);
-        jpos.push(raw.math.vec3.add([], bpos, v2));
-
-      }
-      else {
-        jpos.push(bpos);
-      }
-
-      jlen.push(j.length || 0);
-    }
-    var si = 0;
-    for (i = 0; i < v.length; i += 3) {
-      for (k = 0; k < jpos.length; k++) {
-        ds = Math.abs(raw.math.vec3.distance2(jpos[k][0], jpos[k][1], jpos[k][2], v[i], v[i + 1], v[i + 2]));
-        d[k] = [k, ds];
-
-      }
-
-      d.sort(function (a, b) {
-        return a[1] - b[1];
-      });
-
-
-      for (k = 0; k < Math.min(jpos.length, 4); k++) {
-        js.data[si + k] = d[k][0];
-        jw.data[si + k] =( d[k][1] / (jlen[js.data[si + k]]));
-
-        if (d[k][1] > jlen[js.data[si + k]] * 0.5) {
-       // if (k>0 && jw.data[si + k] > 1) {
-          jw.data[si + k] = 0;
-        }
-      }
-      si += 4;
-    }
-    this.normalize_skin_weights(geo);
-    return geo;
-  };
-  proto.initialize_item = function () {
-    this.item_type = 2;
-    
-    if (!this.geometry.attributes['a_joints_indices']) {
-      this.skin_geometry(this.geometry, this.skeleton);
-      console.log(skin_geometry);
-
-    }
-    this.flags += 1;
-   
-    skin_shader(this.material);
-
-  };
-  function mesh(def) {    
-    _super.apply(this, [def]);
-    this.skeleton = def.skeleton;
-    this.item_type = 1024;
-  }
-  
-
-  return mesh;
-}, raw.rendering.mesh);
-
-
-/*
- 
-  dqs.cg
-
-  Dual quaternion skinning vertex shaders (no shading computations)
-
-  Version 1.0.3, November 1st, 2007
-
-  Copyright (C) 2006-2007 University of Dublin, Trinity College, All Rights
-  Reserved
-
-  This software is provided 'as-is', without any express or implied
-  warranty.  In no event will the author(s) be held liable for any damages
-  arising from the use of this software.
-
-  Permission is granted to anyone to use this software for any purpose,
-  including commercial applications, and to alter it and redistribute it
-  freely, subject to the following restrictions:
-
-  1. The origin of this software must not be misrepresented; you must not
-     claim that you wrote the original software. If you use this software
-     in a product, an acknowledgment in the product documentation would be
-     appreciated but is not required.
-  2. Altered source versions must be plainly marked as such, and must not be
-     misrepresented as being the original software.
-  3. This notice may not be removed or altered from any source distribution.
-
-  Author: Ladislav Kavan, ladislav.kavan@gmail.com
-
-
-
-struct inputs
-{
-  float4 position: POSITION;
-  float4 normal: NORMAL;
-  float4 weights: TEXCOORD1;
-  float4 matrixIndices: TEXCOORD2;
-};
-
-struct outputs
-{
-  float4 hPosition: POSITION;
-  float4 hNormal: TEXCOORD1;
-};
-
-float3x4 DQToMatrix(float4 Qn, float4 Qd)
-{
-  float3x4 M;
-  float len2 = dot(Qn, Qn);
-  float w = Qn.x, x = Qn.y, y = Qn.z, z = Qn.w;
-  float t0 = Qd.x, t1 = Qd.y, t2 = Qd.z, t3 = Qd.w;
-
-  M[0][0] = w * w + x * x - y * y - z * z; M[0][1] = 2 * x * y - 2 * w * z; M[0][2] = 2 * x * z + 2 * w * y;
-  M[1][0] = 2 * x * y + 2 * w * z; M[1][1] = w * w + y * y - x * x - z * z; M[1][2] = 2 * y * z - 2 * w * x;
-  M[2][0] = 2 * x * z - 2 * w * y; M[2][1] = 2 * y * z + 2 * w * x; M[2][2] = w * w + z * z - x * x - y * y;
-
-  M[0][3] = -2 * t0 * x + 2 * w * t1 - 2 * t2 * z + 2 * y * t3;
-  M[1][3] = -2 * t0 * y + 2 * t1 * z - 2 * x * t3 + 2 * w * t2;
-  M[2][3] = -2 * t0 * z + 2 * x * t2 + 2 * w * t3 - 2 * t1 * y;
-
-  M /= len2;
-
-  return M;
-}
-
-// basic dual quaternion skinning:
-outputs dqs(inputs IN,
-  uniform float4x4 modelViewProj,
-  uniform float4x4 modelViewIT,
-  uniform float2x4 boneDQ[100])
-{
-  outputs OUT;
-
-  float2x4 blendDQ = IN.weights.x * boneDQ[IN.matrixIndices.x];
-  blendDQ += IN.weights.y * boneDQ[IN.matrixIndices.y];
-  blendDQ += IN.weights.z * boneDQ[IN.matrixIndices.z];
-  blendDQ += IN.weights.w * boneDQ[IN.matrixIndices.w];
-
-  float3x4 M = DQToMatrix(blendDQ[0], blendDQ[1]);
-  float3 position = mul(M, IN.position);
-  float3 normal = mul(M, IN.normal);
-
-  OUT.hPosition = mul(modelViewProj, float4(position, 1.0));
-  OUT.hNormal = mul(modelViewIT, float4(normal, 0.0));
-
-  return OUT;
-}
-
-// per-vertex antipodality handling (this is the most robust, but not the most efficient way):
-outputs dqsAntipod(inputs IN,
-  uniform float4x4 modelViewProj,
-  uniform float4x4 modelViewIT,
-  uniform float2x4 boneDQ[100])
-{
-  outputs OUT;
-
-  float2x4 dq0 = boneDQ[IN.matrixIndices.x];
-  float2x4 dq1 = boneDQ[IN.matrixIndices.y];
-  float2x4 dq2 = boneDQ[IN.matrixIndices.z];
-  float2x4 dq3 = boneDQ[IN.matrixIndices.w];
-
-  if (dot(dq0[0], dq1[0]) < 0.0) dq1 *= -1.0;
-  if (dot(dq0[0], dq2[0]) < 0.0) dq2 *= -1.0;
-  if (dot(dq0[0], dq3[0]) < 0.0) dq3 *= -1.0;
-
-  float2x4 blendDQ = IN.weights.x * dq0;
-  blendDQ += IN.weights.y * dq1;
-  blendDQ += IN.weights.z * dq2;
-  blendDQ += IN.weights.w * dq3;
-
-  float3x4 M = DQToMatrix(blendDQ[0], blendDQ[1]);
-  float3 position = mul(M, IN.position);
-  float3 normal = mul(M, IN.normal);
-
-  OUT.hPosition = mul(modelViewProj, float4(position, 1.0));
-  OUT.hNormal = mul(modelViewIT, float4(normal, 0.0));
-
-  return OUT;
-}
-
-// optimized version (avoids dual quaternion - matrix conversion):
-outputs dqsFast(inputs IN,
-  uniform float4x4 modelViewProj,
-  uniform float4x4 modelViewIT,
-  uniform float2x4 boneDQ[100])
-{
-  outputs OUT;
-
-  float2x4 blendDQ = IN.weights.x * boneDQ[IN.matrixIndices.x];
-  blendDQ += IN.weights.y * boneDQ[IN.matrixIndices.y];
-  blendDQ += IN.weights.z * boneDQ[IN.matrixIndices.z];
-  blendDQ += IN.weights.w * boneDQ[IN.matrixIndices.w];
-
-  float len = length(blendDQ[0]);
-  blendDQ /= len;
-
-  float3 position = IN.position.xyz + 2.0 * cross(blendDQ[0].yzw, cross(blendDQ[0].yzw, IN.position.xyz) + blendDQ[0].x * IN.position.xyz);
-  float3 trans = 2.0 * (blendDQ[0].x * blendDQ[1].yzw - blendDQ[1].x * blendDQ[0].yzw + cross(blendDQ[0].yzw, blendDQ[1].yzw));
-  position += trans;
-
-  float3 inpNormal = IN.normal.xyz;
-  float3 normal = inpNormal + 2.0 * cross(blendDQ[0].yzw, cross(blendDQ[0].yzw, inpNormal) + blendDQ[0].x * inpNormal);
-
-  OUT.hPosition = mul(modelViewProj, float4(position, 1.0));
-  OUT.hNormal = mul(modelViewIT, float4(normal, 0.0));
-
-  return OUT;
-}
-
-float3x3 adjointTransposeMatrix(float3x3 M)
-{
-  float3x3 atM;
-  atM._m00 = M._m22 * M._m11 - M._m12 * M._m21;
-  atM._m01 = M._m12 * M._m20 - M._m10 * M._m22;
-  atM._m02 = M._m10 * M._m21 - M._m20 * M._m11;
-
-  atM._m10 = M._m02 * M._m21 - M._m22 * M._m01;
-  atM._m11 = M._m22 * M._m00 - M._m02 * M._m20;
-  atM._m12 = M._m20 * M._m01 - M._m00 * M._m21;
-
-  atM._m20 = M._m12 * M._m01 - M._m02 * M._m11;
-  atM._m21 = M._m10 * M._m02 - M._m12 * M._m00;
-  atM._m22 = M._m00 * M._m11 - M._m10 * M._m01;
-
-  return atM;
-}
-
-// two-phase skinning: dqsFast combined with scale/shear transformations:
-outputs dqsScale(inputs IN,
-  uniform float4x4 modelViewProj,
-  uniform float4x4 modelViewIT,
-  uniform float2x4 boneDQ[100],
-  uniform float3x4 scaleM[100])
-{
-  outputs OUT;
-
-  // first pass:
-  float3x4 blendS = IN.weights.x * scaleM[IN.matrixIndices.x];
-  blendS += IN.weights.y * scaleM[IN.matrixIndices.y];
-  blendS += IN.weights.z * scaleM[IN.matrixIndices.z];
-  blendS += IN.weights.w * scaleM[IN.matrixIndices.w];
-
-  float3 pass1_position = mul(blendS, IN.position);
-  float3x3 blendSrotAT = adjointTransposeMatrix(float3x3(blendS));
-  float3 pass1_normal = normalize(mul(blendSrotAT, IN.normal.xyz));
-
-  // second pass:
-  float2x4 blendDQ = IN.weights.x * boneDQ[IN.matrixIndices.x];
-  blendDQ += IN.weights.y * boneDQ[IN.matrixIndices.y];
-  blendDQ += IN.weights.z * boneDQ[IN.matrixIndices.z];
-  blendDQ += IN.weights.w * boneDQ[IN.matrixIndices.w];
-
-  float len = length(blendDQ[0]);
-  blendDQ /= len;
-
-  float3 position = pass1_position + 2.0 * cross(blendDQ[0].yzw, cross(blendDQ[0].yzw, pass1_position) + blendDQ[0].x * pass1_position);
-  float3 trans = 2.0 * (blendDQ[0].x * blendDQ[1].yzw - blendDQ[1].x * blendDQ[0].yzw + cross(blendDQ[0].yzw, blendDQ[1].yzw));
-  position += trans;
-
-  float3 normal = pass1_normal + 2.0 * cross(blendDQ[0].yzw, cross(blendDQ[0].yzw, pass1_normal) + blendDQ[0].x * pass1_normal);
-
-  OUT.hPosition = mul(modelViewProj, float4(position, 1.0));
-  OUT.hNormal = mul(modelViewIT, float4(normal, 0.0));
-
-  return OUT;
-}
- * 
- */ 
-
-/*src/render_system.js*/
+/*src/systems/render_system.js*/
 
 
 raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
+
+  var glsl = raw.webgl.shader.create_chunks_lib(`/*chunk-textured-quad*/
+attribute vec2 a_position_rw;
+uniform vec4 u_pos_size;
+const vec2 madd=vec2(0.5,0.5);
+varying vec2 v_uv_rw;
+void vertex()
+{
+gl_Position = vec4((a_position_rw.xy*u_pos_size.zw)+u_pos_size.xy,0.0,1.0);
+v_uv_rw = a_position_rw.xy*madd+madd; 
+}
+<?=chunk('precision')?>
+uniform sampler2D u_texture_rw;
+varying vec2 v_uv_rw;
+void fragment(void)
+{
+gl_FragColor = texture2D(u_texture_rw, v_uv_rw);
+}
+
+/*chunk-pickable-mesh*/
+
+<?=chunk('precision')?>
+
+uniform vec4 u_color_id_rw;
+void fragment(void) {
+gl_FragColor=u_color_id_rw/255.0;
+}
+
+/*chunk-render-shadow-map*/
+
+<?=chunk('precision')?>
+
+uniform sampler2D u_texture_rw;
+varying vec2 v_uv_rw;
+
+void fragment(void) {
+if(texture2D(u_texture_rw, v_uv_rw).a<0.02) discard;
+gl_FragColor=vec4(1.0);
+}
+
+
+/*chunk-receive-shadow*/
+uniform mat4 u_light_camera_matrix_rw;
+varying vec4 v_shadow_light_vertex_rw;
+
+void vertex(){
+super_vertex();
+v_shadow_light_vertex_rw = u_light_camera_matrix_rw * v_position_rw;
+}
+
+
+<?=chunk('precision')?>
+<?=chunk('shadow-sampling')?>
+
+
+varying vec3 v_normal_rw;
+varying vec4 v_shadow_light_vertex_rw;
+
+uniform sampler2D u_texture_rw;
+uniform sampler2D u_shadow_map_rw;
+uniform vec3 u_shadow_params_rw;
+uniform vec3 u_light_pos_rw;
+varying vec2 v_uv_rw;
+varying vec4 v_position_rw;
+
+
+
+float get_shadow_sample() {
+
+float f=texture2D(u_texture_rw, v_uv_rw).a;
+
+vec3 shadow_map_coords =v_shadow_light_vertex_rw.xyz/v_shadow_light_vertex_rw.w;
+f*=step(-(dot(v_normal_rw,normalize(u_light_pos_rw - v_position_rw.xyz))),0.0);
+
+shadow_map_coords.xyz = shadow_map_coords.xyz * 0.5 + 0.5;
+
+f*=step(shadow_map_coords.x,1.0)*step(shadow_map_coords.y,1.0)*step(shadow_map_coords.z,1.0);
+f*=step(0.0,shadow_map_coords.x)*step(0.0,shadow_map_coords.y)*step(0.0,shadow_map_coords.y);
+
+return (0.5*f)-sample_shadow_map_pcf(u_shadow_map_rw, shadow_map_coords.xy,
+shadow_map_coords.z-u_shadow_params_rw.z ,vec2(u_shadow_params_rw.y))*f;
+
+
+}
+
+
+void fragment(void) {
+gl_FragColor = vec4((get_shadow_sample()*u_shadow_params_rw.x));
+
+}`);
 
   function setup_gl_state(gl) {
     gl.states = { depthMask: false, blendFunc0: -1, blendFunc1: -1, framebuffer: undefined };
@@ -10953,24 +9864,7 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
         -1, 1
       ])
     }
-    var shdr = raw.webgl.shader.parse(`
-          attribute vec2 a_position_rw;
-          uniform vec4 u_pos_size;
-          const vec2 madd=vec2(0.5,0.5);
-          varying vec2 v_uv_rw;
-          void vertex()
-          {
-            gl_Position = vec4((a_position_rw.xy*u_pos_size.zw)+u_pos_size.xy,0.0,1.0);	
-	          v_uv_rw = a_position_rw.xy*madd+madd;  
-          }
-          <?=chunk('precision')?>
-          uniform sampler2D u_texture_rw;
-          varying vec2 v_uv_rw;
-          void fragment(void)
-          {	
-            gl_FragColor = texture2D(u_texture_rw, v_uv_rw);	
-          }
-`);
+    var shdr = raw.webgl.shader.parse(glsl["textured-quad"]);
     var u_pos_size = raw.math.vec4();
     return function (texture, left, top, width, height) {
       u_pos_size[0] = left;
@@ -11209,71 +10103,11 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
         return shadow_map;
       }
 
-      var default_shadows = raw.webgl.shader.create_chunks_lib(`/*chunk-map*/
-<?=chunk('precision')?>
-
-uniform sampler2D u_texture_rw;
-varying vec2 v_uv_rw;
-
-void fragment(void) {
-if(texture2D(u_texture_rw, v_uv_rw).a<0.02) discard;
-gl_FragColor=vec4(1.0);
-}
-
-/*chunk-receiver*/
-uniform mat4 u_light_camera_matrix_rw;
-varying vec4 v_shadow_light_vertex_rw;
-
-void vertex(){
-super_vertex();
-v_shadow_light_vertex_rw = u_light_camera_matrix_rw * v_position_rw;
-}
-
-
-<?=chunk('precision')?>
-<?=chunk('shadow-sampling')?>
-
-
-varying vec3 v_normal_rw;
-varying vec4 v_shadow_light_vertex_rw;
-
-uniform sampler2D u_texture_rw;
-uniform sampler2D u_shadow_map_rw;
-uniform vec3 u_shadow_params_rw;
-uniform vec3 u_light_pos_rw;
-varying vec2 v_uv_rw;
-varying vec4 v_position_rw;
-
-
-
-float get_shadow_sample() {
-
-float f=texture2D(u_texture_rw, v_uv_rw).a;
-
-vec3 shadow_map_coords =v_shadow_light_vertex_rw.xyz/v_shadow_light_vertex_rw.w;
-f*=step(-(dot(v_normal_rw,normalize(u_light_pos_rw - v_position_rw.xyz))),0.0);
-
-shadow_map_coords.xyz = shadow_map_coords.xyz * 0.5 + 0.5;
-
-f*=step(shadow_map_coords.x,1.0)*step(shadow_map_coords.y,1.0)*step(shadow_map_coords.z,1.0);
-f*=step(0.0,shadow_map_coords.x)*step(0.0,shadow_map_coords.y)*step(0.0,shadow_map_coords.y);
-
-return (0.5*f)-sample_shadow_map_pcf(u_shadow_map_rw, shadow_map_coords.xy,
-shadow_map_coords.z-u_shadow_params_rw.z ,vec2(u_shadow_params_rw.y))*f;
-
-
-}
-
-
-void fragment(void) {
-gl_FragColor = vec4((get_shadow_sample()*u_shadow_params_rw.x));
-
-}`);
-
+      
       function get_shadow_map_shader(light_type, shader) {
         if (light_type === 0) {
           if (!shader.default_shadow_map) {
-            shader.default_shadow_map = shader.extend(default_shadows['map'], { fragment: false });
+            shader.default_shadow_map = shader.extend(glsl['render-shadow-map'], { fragment: false });
             shader.default_shadow_map.shadow_shader = true;
           }
           return shader.default_shadow_map;
@@ -11283,7 +10117,7 @@ gl_FragColor = vec4((get_shadow_sample()*u_shadow_params_rw.x));
       function get_shadow_receiver_shader(light_type, shader) {
         if (light_type === 0) {
           if (!shader.default_shadow_receiver) {
-            shader.default_shadow_receiver = shader.extend(default_shadows['receiver'], { fragment: false });
+            shader.default_shadow_receiver = shader.extend(glsl['receive-shadow'], { fragment: false });
             shader.default_shadow_receiver.shadow_shader = true;
           }
           return shader.default_shadow_receiver;
@@ -11488,7 +10322,7 @@ gl_FragColor = vec4((get_shadow_sample()*u_shadow_params_rw.x));
           mesh = pickable_meshes.data[i0];
 
           if (!mesh.material.shader.pickable) {
-            mesh.material.shader.pickable = mesh.material.shader.extend(raw.webgl.shader.get_chunk('pickable-mesh'), { fragment: false });
+            mesh.material.shader.pickable = mesh.material.shader.extend(glsl['pickable-mesh'], { fragment: false });
           }
 
           if (this.use_shader(mesh.material.shader.pickable)) {
@@ -11688,6 +10522,9 @@ gl_FragColor = vec4((get_shadow_sample()*u_shadow_params_rw.x));
 }, raw.ecs.system));
 
 /*src/main.js*/
+
+
+
 
 
 
