@@ -11,13 +11,41 @@
 <body>
   <script>    
     demo({}, function (app, renderer, camera) {    
-   
-      var t=app.create_entity({
+
+      var t = app.create_entity({
         components: {
           'transform': {},
           'terrain': {
             camera: camera.camera,
-            renderer: renderer
+            renderer: renderer,
+            wireframe:false,
+            region_size: 512,
+            terrain_quality: 4,
+            quality_distance: 2000,
+            draw_distance: 3000,
+            detail_levels: [1, 2, 4, 8, 16, 24],
+            region_distance: 8,
+            regions_from_image_url: [
+              ["res/heightmap10.jpg", -2, -2, 1, 1024, 1024, 4]
+            ],
+            material: {
+              texture_tiles: [
+                "res/dirt.jpg",
+                "res/grass.jpg",
+                "res/mud.jpg",
+                "res/stone.jpg"
+              ],
+              extend: `
+vec4 mix_texture_tiles(vec4 tile1,vec4 tile2,vec4 tile3,vec4 tile4,vec3 normal){
+	return mix(tile1,mix(read_tile(u_texture_tiles,2.0, 1.0,0.0), tile3,0.25),abs(normal.x));
+}
+void fragment(void){
+  super_fragment();
+}
+`
+
+
+            }
           }
         }
       });
@@ -30,7 +58,7 @@
 
       app.begin_loop(function (delta) {
         app.tick_debug(delta);
-      }, 1 / 30);
+      }, 1 / 10);
 
       
     });

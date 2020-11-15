@@ -130,6 +130,80 @@ raw.webgl.texture = raw.define(function (proto) {
 
   texture.dummy = new texture();
 
+
+  texture.create_tiled_texture = (function () {
+    var canv =raw.create_canvas(1, 1);
+    canv.is_busy = false;
+    var tile_maker = raw.create_canvas(1, 1);
+    var x, y;
+    var pool = [];
+    tile_maker.ctx.imageSmoothingEnabled = false;
+    function create_tiled_texture(tile_urls, tile_size, width, height, texture) {
+      texture = texture || new raw.webgl.texture(false, false, false, null, true, width, height);
+      texture.tile_size = tile_size;
+      if (canv.is_busy) {
+        pool.push([tile_urls, tile_size, width, height, texture]);
+        return texture;
+      }
+      canv.is_busy = true;
+      canv.setSize(width, height);
+      tile_maker.setSize(tile_size, tile_size);
+
+
+
+      var tile_size2 = tile_size / 2;
+      texture.tile_offset = tile_size / 4;
+      texture.tile_offsetf = texture.tile_offset / width;
+      texture.tile_sizef = tile_size / width;
+
+      x = 0; y = 0;
+      raw.each_index(function (index, next) {
+        console.log("loading ", tile_urls[index]);
+
+        raw.load_working_image(tile_urls[index], function (img) {
+
+          tile_maker.ctx.drawImage(img, 0, 0, tile_size2, tile_size2);
+          tile_maker.ctx.drawImage(img, tile_size2, 0, tile_size2, tile_size2);
+
+          tile_maker.ctx.drawImage(img, 0, tile_size2, tile_size2, tile_size2);
+
+          tile_maker.ctx.drawImage(img, tile_size2, tile_size2, tile_size2, tile_size2);
+
+
+
+
+          canv.ctx.drawImage(tile_maker, x, y, tile_size, tile_size);
+          if (x + tile_size < width) {
+            x += tile_size;
+          }
+          else {
+            x = 0;
+            y += tile_size;
+          }
+          console.log("tile " + index);
+          if (index < tile_urls.length - 1) {
+            next(index + 1);
+          }
+          else {
+            texture.source = canv._getImageData().data;
+            texture.needs_update = true;
+            canv.is_busy = false;
+            if (pool.length > 0) {
+              create_tiled_texture.apply(raw.webgl.texture, pool.shift());
+            }
+
+            //canv.toBlob(function (b) {saveAs(b, "image.jpg");});
+            //document.getElementById("test_tile").src = canv.toDataURL("");
+          }
+        }, tile_size, tile_size);
+      }, 0);
+
+      return texture;
+    }
+    return create_tiled_texture;
+  })();
+
+
   return texture;
 
 });

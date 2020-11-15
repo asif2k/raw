@@ -538,22 +538,19 @@ raw.load_working_url = (function () {
 })();
 
 
-raw.load_working_image_data = (function () {
+raw.load_working_image = (function () {
   var parking = new raw.queue();
   var img = new Image();
   img.crossOrigin = "Anonymous";
   var canv = raw.create_canvas(1, 1);
-
-  function process(url, cb,w,h) {
+  img.is_busy = false;
+  function process(url, cb) {
     if (img.is_busy) {
-      parking.enqueue([url, cb, w, h]);
+      parking.enqueue([url, cb]);
       return;
     }
-    img.onload = function () {      
-      canv.setSize(w || this.width, h || this.height);
-      canv.ctx.drawImage(this, 0, 0, canv.width, canv.height);
-      if (cb) cb(canv._getImageData().data, canv.width, canv.height, this);
-      canv._putImageData();      
+    img.onload = function () {            
+      if (cb) cb(this);      
       this.is_busy = false;
       if (parking.size() > 0) {
         process.apply(this, parking.dequeue());
@@ -562,6 +559,37 @@ raw.load_working_image_data = (function () {
     img.is_busy = true;
     img.src = url;
     
+  }
+
+  return process;
+
+})();
+
+
+raw.load_working_image_data = (function () {
+  var parking = new raw.queue();
+  var img = new Image();
+  img.crossOrigin = "Anonymous";
+  var canv = raw.create_canvas(1, 1);
+  img.is_busy = false;
+  function process(url, cb, w, h) {
+    if (img.is_busy) {
+      parking.enqueue([url, cb, w, h]);
+      return;
+    }
+    img.onload = function () {
+      canv.setSize(w || this.width, h || this.height);
+      canv.ctx.drawImage(this, 0, 0, canv.width, canv.height);
+      if (cb) cb(canv._getImageData().data, canv.width, canv.height, this);
+      canv._putImageData();
+      this.is_busy = false;
+      if (parking.size() > 0) {
+        process.apply(this, parking.dequeue());
+      }
+    };
+    img.is_busy = true;
+    img.src = url;
+
   }
 
   return process;

@@ -16,6 +16,7 @@ raw.rendering = raw.rendering || {};
       this.draw_offset = 0;
       if (this.geometry !== null) this.draw_count = this.geometry.num_items;
       this.item_type = raw.ITEM_TYPES.MESH;
+      this.flags = def.flags || 0;
 
     }
     proto.update_bounds = function (mat, trans) {

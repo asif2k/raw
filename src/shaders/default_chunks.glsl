@@ -188,3 +188,10 @@ vec3 quat_transform(vec4 q, vec3 v)
 {
    return (v + cross(2.0 * q.xyz, cross(q.xyz, v) + q.w * v));
 }
+
+/*chunk-mat3-transpose*/
+mat3 transpose(mat3 m) {
+  return mat3(m[0][0], m[1][0], m[2][0],
+              m[0][1], m[1][1], m[2][1],
+              m[0][2], m[1][2], m[2][2]);
+}

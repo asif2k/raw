@@ -541,22 +541,19 @@ raw.load_working_url = (function () {
 })();
 
 
-raw.load_working_image_data = (function () {
+raw.load_working_image = (function () {
   var parking = new raw.queue();
   var img = new Image();
   img.crossOrigin = "Anonymous";
   var canv = raw.create_canvas(1, 1);
-
-  function process(url, cb,w,h) {
+  img.is_busy = false;
+  function process(url, cb) {
     if (img.is_busy) {
-      parking.enqueue([url, cb, w, h]);
+      parking.enqueue([url, cb]);
       return;
     }
-    img.onload = function () {      
-      canv.setSize(w || this.width, h || this.height);
-      canv.ctx.drawImage(this, 0, 0, canv.width, canv.height);
-      if (cb) cb(canv._getImageData().data, canv.width, canv.height, this);
-      canv._putImageData();      
+    img.onload = function () {            
+      if (cb) cb(this);      
       this.is_busy = false;
       if (parking.size() > 0) {
         process.apply(this, parking.dequeue());
@@ -565,6 +562,37 @@ raw.load_working_image_data = (function () {
     img.is_busy = true;
     img.src = url;
     
+  }
+
+  return process;
+
+})();
+
+
+raw.load_working_image_data = (function () {
+  var parking = new raw.queue();
+  var img = new Image();
+  img.crossOrigin = "Anonymous";
+  var canv = raw.create_canvas(1, 1);
+  img.is_busy = false;
+  function process(url, cb, w, h) {
+    if (img.is_busy) {
+      parking.enqueue([url, cb, w, h]);
+      return;
+    }
+    img.onload = function () {
+      canv.setSize(w || this.width, h || this.height);
+      canv.ctx.drawImage(this, 0, 0, canv.width, canv.height);
+      if (cb) cb(canv._getImageData().data, canv.width, canv.height, this);
+      canv._putImageData();
+      this.is_busy = false;
+      if (parking.size() > 0) {
+        process.apply(this, parking.dequeue());
+      }
+    };
+    img.is_busy = true;
+    img.src = url;
+
   }
 
   return process;
@@ -3429,6 +3457,80 @@ raw.webgl.texture = raw.define(function (proto) {
 
   texture.dummy = new texture();
 
+
+  texture.create_tiled_texture = (function () {
+    var canv =raw.create_canvas(1, 1);
+    canv.is_busy = false;
+    var tile_maker = raw.create_canvas(1, 1);
+    var x, y;
+    var pool = [];
+    tile_maker.ctx.imageSmoothingEnabled = false;
+    function create_tiled_texture(tile_urls, tile_size, width, height, texture) {
+      texture = texture || new raw.webgl.texture(false, false, false, null, true, width, height);
+      texture.tile_size = tile_size;
+      if (canv.is_busy) {
+        pool.push([tile_urls, tile_size, width, height, texture]);
+        return texture;
+      }
+      canv.is_busy = true;
+      canv.setSize(width, height);
+      tile_maker.setSize(tile_size, tile_size);
+
+
+
+      var tile_size2 = tile_size / 2;
+      texture.tile_offset = tile_size / 4;
+      texture.tile_offsetf = texture.tile_offset / width;
+      texture.tile_sizef = tile_size / width;
+
+      x = 0; y = 0;
+      raw.each_index(function (index, next) {
+        console.log("loading ", tile_urls[index]);
+
+        raw.load_working_image(tile_urls[index], function (img) {
+
+          tile_maker.ctx.drawImage(img, 0, 0, tile_size2, tile_size2);
+          tile_maker.ctx.drawImage(img, tile_size2, 0, tile_size2, tile_size2);
+
+          tile_maker.ctx.drawImage(img, 0, tile_size2, tile_size2, tile_size2);
+
+          tile_maker.ctx.drawImage(img, tile_size2, tile_size2, tile_size2, tile_size2);
+
+
+
+
+          canv.ctx.drawImage(tile_maker, x, y, tile_size, tile_size);
+          if (x + tile_size < width) {
+            x += tile_size;
+          }
+          else {
+            x = 0;
+            y += tile_size;
+          }
+          console.log("tile " + index);
+          if (index < tile_urls.length - 1) {
+            next(index + 1);
+          }
+          else {
+            texture.source = canv._getImageData().data;
+            texture.needs_update = true;
+            canv.is_busy = false;
+            if (pool.length > 0) {
+              create_tiled_texture.apply(raw.webgl.texture, pool.shift());
+            }
+
+            //canv.toBlob(function (b) {saveAs(b, "image.jpg");});
+            //document.getElementById("test_tile").src = canv.toDataURL("");
+          }
+        }, tile_size, tile_size);
+      }, 0);
+
+      return texture;
+    }
+    return create_tiled_texture;
+  })();
+
+
   return texture;
 
 });
@@ -3915,6 +4017,13 @@ gl_FragColor=vec4(v_box_color_rw,1.0);
 vec3 quat_transform(vec4 q, vec3 v)
 {
   return (v + cross(2.0 * q.xyz, cross(q.xyz, v) + q.w * v));
+}
+
+/*chunk-mat3-transpose*/
+mat3 transpose(mat3 m) {
+ return mat3(m[0][0], m[1][0], m[2][0],
+       m[0][1], m[1][1], m[2][1],
+       m[0][2], m[1][2], m[2][2]);
 }`);
 
   shader.context_param;
@@ -5339,7 +5448,7 @@ gl_FragColor.w*=u_object_material_rw[0].w;
         }
 
 
-        shader.set_uniform("u_object_material_rw", this.object_material)
+        shader.set_uniform("u_object_material_rw", this.object_material);
         shader.set_uniform("u_texture_matrix_rw", this.texture_matrix);
         shader.set_uniform("u_texture_rw", 0);
         renderer.use_texture(this.texture, 0);
@@ -5846,6 +5955,7 @@ gl_FragColor=u_marker_color;
       this.draw_offset = 0;
       if (this.geometry !== null) this.draw_count = this.geometry.num_items;
       this.item_type = 2;
+      this.flags = def.flags || 0;
 
     }
     proto.update_bounds = function (mat, trans) {
@@ -6641,7 +6751,7 @@ raw.ecs.register_component("camera", raw.define(function (proto, _super) {
       if (this.type === "perspective") {
         this.fov = (def.fov !== undefined ? def.fov : 50) * 0.017453292519943295;
         this.near = def.near !== undefined ? near : 0.1;
-        this.far = def.far !== undefined ? def.far : 1000;
+        this.far = def.far !== undefined ? def.far : 2000;
         this.aspect = def.aspect !== undefined ? def.aspect : 1;
       }
       else {
@@ -9235,125 +9345,148 @@ uniform vec3 reg_pos;
 uniform vec3 cam_reg_pos;
 
 varying vec4 v_position_rw;
+varying vec3 v_normal_rw;
+varying vec2 v_uv_rw;
+varying mat3 v_tbn_matrix;
+
+
+<?=chunk('mat3-transpose')?>
 
 void vertex(void){
  v_position_rw.z=floor(a_position_rw.x/cam_reg_pos.z);
  v_position_rw.x=floor(mod(a_position_rw.x,cam_reg_pos.z));
  v_position_rw.y=a_position_rw.y; 
+
+
+ v_normal_rw.x = fract(a_position_rw.z);
+ v_normal_rw.y = fract(a_position_rw.z* 256.0); 
+ v_normal_rw.z = fract(a_position_rw.z * 65536.0); 
+
+
+  v_normal_rw.x = (v_normal_rw.x * 2.0) - 1.0;
+ v_normal_rw.y = (v_normal_rw.y * 2.0) - 1.0;
+ v_normal_rw.z = (v_normal_rw.z * 2.0) - 1.0; 
+
+
  v_position_rw.w=1.0; 
  v_position_rw.xz+=reg_pos.xz;  
  gl_Position = u_view_projection_rw *v_position_rw;
 
-
-}
-<?=chunk('precision')?>
-
-void fragment(void) {
-
-  gl_FragColor = vec4(1.0);
-  
-  
+ v_uv_rw=v_position_rw.xz;    
+ v_uv_rw/=(cam_reg_pos.z-1.0);  
+ v_normal_rw=normalize(v_normal_rw);
 
 }
 
-
-/*chunk-shaded-material*/
-
 <?=chunk('precision')?>
-attribute vec3 a_position_rw;
-attribute vec3 a_normal_rw;
-attribute vec2 a_uv_rw;
-attribute vec4 a_color_rw;
-uniform mat4 u_view_projection_rw;
-uniform mat4 u_model_rw;
-uniform mat3 u_texture_matrix_rw;
 
-varying vec2 v_uv_rw;
+uniform mat4 u_object_material_rw;
+uniform vec4 u_eye_position_rw;
+
 varying vec4 v_position_rw;
 varying vec3 v_normal_rw;
-varying vec4 v_color_rw;
-
-vec4 att_position(void);
-vec4 att_normal(void);
-vec3 att_uv(void);
-
-vec4 att_position(void){
-  return vec4(a_position_rw,1.0);
-}
-vec4 att_normal(void){
-  return vec4(a_normal_rw,0.0);
-}
-
-vec3 att_uv(void){
-  return vec3(a_uv_rw,1.0);
-}
-
-void vertex(){
-v_position_rw=u_model_rw*att_position();
-  gl_Position=u_view_projection_rw*v_position_rw;
-v_normal_rw=(u_model_rw*att_normal()).xyz;
-v_uv_rw=(u_texture_matrix_rw*att_uv()).xy;
- v_color_rw=a_color_rw;
-}
-
-<?=chunk('precision')?>
+varying vec2 v_uv_rw;
+varying mat3 v_tbn_matrix;
 
 <?=chunk('fws-lighting')?>
 
-varying vec2 v_uv_rw;
-varying vec4 v_position_rw;
-varying vec3 v_normal_rw;
-varying vec4 v_color_rw;
+uniform vec3 land_color;
 
-uniform mat4 u_object_material_rw;
-uniform sampler2D u_texture_rw;
-uniform vec4 u_eye_position_rw;
+uniform sampler2D u_texture_tiles;
+
+uniform vec2 u_tile_size_rw;
+uniform vec4 u_tile_repeat_rw;
+
+float tile_size;
+vec2 tile_uv;
+vec2 uv=vec2(0);
+float tile_offset;
+
+vec4 mix_texture_tiles(vec4 tile1,vec4 tile2,vec4 tile3,vec4 tile4,vec3 normal);
+vec4 read_tile(sampler2D texture,float tile_repeat, float tx,float ty);
+
+vec4 mix_texture_tiles(vec4 tile1,vec4 tile2,vec4 tile3,vec4 tile4,vec3 normal){
+return mix(tile1,tile3,abs(normal.y));
+}
+
+
+vec4 read_tile(sampler2D texture,float tile_repeat, float tx,float ty){
+  uv.x=mod(v_uv_rw.x*tile_repeat,tile_size-(tile_offset*2.0));
+  uv.y=mod(v_uv_rw.y*tile_repeat,tile_size-(tile_offset*2.0));
+  uv.x+=tx*tile_size+tile_offset;
+  uv.y+=ty*tile_size+tile_offset;
+  return texture2D(texture, uv);
+}
 
 void fragment(void) {
-vec3 fws_direction_to_eye = normalize(u_eye_position_rw.xyz - v_position_rw.xyz);
 
+tile_size=u_tile_size_rw.x;
+tile_offset=u_tile_size_rw.y;
+
+  vec3 fws_direction_to_eye = normalize(u_eye_position_rw.xyz - v_position_rw.xyz);
 fws_total_light=fws_lighting_calc(u_object_material_rw,v_position_rw.xyz,
 normalize(v_normal_rw),fws_direction_to_eye);
 
-gl_FragColor = vec4(fws_total_light, u_object_material_rw[0].w)* 
-texture2D(u_texture_rw, v_uv_rw)* v_color_rw;
+vec4 tile1=read_tile(u_texture_tiles,u_tile_repeat_rw.x, 0.0,0.0);
+vec4 tile2=read_tile(u_texture_tiles,u_tile_repeat_rw.y, 1.0,0.0);
+vec4 tile3=read_tile(u_texture_tiles,u_tile_repeat_rw.z, 0.0,1.0);
+vec4 tile4=read_tile(u_texture_tiles,u_tile_repeat_rw.w, 1.0,1.0);
+
+gl_FragColor = vec4(fws_total_light+land_color, u_object_material_rw[0].w)*
+mix_texture_tiles(tile1,tile2,tile3,tile4,v_normal_rw);
 gl_FragColor.w*=u_object_material_rw[0].w;
+}
 
-
-
-
-
-
-
-}`);
+`);
 
 
   var terrain_material = raw.define(function (proto, _super) {
 
-    var terrain = null;
+    proto.render_mesh = function (renderer, shader, mesh) {
+      shader.set_uniform("u_object_material_rw", this.object_material);
 
-    proto.update_mesh = function (renderer, shader, mesh) {
+      shader.set_uniform("u_tile_size_rw", this.tile_size);
+      shader.set_uniform("u_tile_repeat_rw", this.tile_repeat);
 
+      renderer.use_texture(this.texture_tiles, 0);
+      this.terrain.render_terrain(renderer, shader);
     };
 
-    proto.render_mesh = function (renderer, shader, mesh) {
-      terrain = this.terrain;
-      terrain.renderer = renderer;
-      if (terrain.camera.version !== terrain.camera_version) {
-        this.terrain.update_terrain();
-        terrain.camera_version = terrain.camera.version;
-      }
-
-      this.terrain.render_terrain(renderer, shader);
-
-
-
-    }
     function terrain_material(def) {
       def = def || {};
       _super.apply(this, [def]);
       this.terrain = def.terrain;
+      raw.math.vec3.set(this.ambient, 0.5, 0.5, 0.5);
+      raw.math.vec3.set(this.specular, 0, 0, 0);
 
+      this.texture_tiles = null;
+      this.normalmap_tiles = null;
+
+      this.tile_size = raw.math.vec2(512, 0);
+      this.tile_repeat = raw.math.vec4(8, 8, 8, 8);
+
+
+      this.shader = terrain_material.shader;
+      if (def.material) {
+        if (def.material.texture_tiles) {
+          this.texture_tiles = raw.webgl.texture.create_tiled_texture(def.material.texture_tiles,
+            def.material.tile_size || 512,
+            def.material.texture_size || 1024,
+            def.material.texture_size || 1024
+          );
+
+          this.tile_size[0] = this.texture_tiles.tile_sizef;
+          this.tile_size[1] = this.texture_tiles.tile_offsetf;
+
+        }
+
+        if (def.material.extend) {
+          this.shader = this.shader.extend(def.material.extend);
+        }
+      }
+
+
+      
     }
     terrain_material.shader = raw.webgl.shader.parse(glsl["flat-material"]);
 
@@ -9367,19 +9500,24 @@ gl_FragColor.w*=u_object_material_rw[0].w;
   
   raw.ecs.register_component("terrain", raw.define(function (proto, _super) {
 
+    var time_start = 0, reg, reg_x, reg_z, reg_key, i = 0;
     proto.create = (function (_super_call) {
       return function (def, entity) {        
         _super_call.apply(this, [def, entity]);
         this.camera = def.camera;
-        this.camera_version = -def.camera.version;
-        this.region_size = def.region_size || 256;
+        this.camera_version =986732;
+        this.region_size = def.region_size || 512;
         this.world_size = def.world_size || (4096 * 2);
         this.region_size_width = this.region_size + 1;
         this.region_size_half = this.region_size * 0.5;
 
         this.items.push(new raw.rendering.mesh({
+          flags: 1,
           geometry: raw.geometry.create({vertices: new Float32Array(0) }),
-          material: new terrain_material({ terrain: this })
+          material: new terrain_material({
+            terrain: this,
+            material: def.material
+          })
         }));
 
 
@@ -9396,15 +9534,18 @@ gl_FragColor.w*=u_object_material_rw[0].w;
 
         this.last_validate_time = 0;
         this.last_updated_time = 0;
-        this.terrain_quality = 3;
-        this.fixed_detail = -1;
-        this.wireframe = true;
-        this.shaded = false;
-        this.region_distance = 4;
-        this.draw_distance = 3000;
-        this.quality_distance = 2000;
+        this.terrain_quality = def.terrain_quality || 4;
+        this.fixed_detail = def.fixed_detail || - 1;
+
+        this.wireframe = def.wireframe || false;
+        this.shaded = true;
+        if (def.shaded !== undefined) this.shaded = def.shaded;
+        this.region_distance = def.region_distance || 4;
+        this.draw_distance = def.draw_distance || 2000;
+        this.quality_distance = def.quality_distance || 1500;
         this.max_scale = 0;
-        this.detail_levels = [1, 2, 6, 12, 20];
+        this.detail_levels = def.detail_levels || [1, 2, 6, 12, 20];
+        this.parking_length = 0;
         this.setup_mesh_processor();
 
         this.sun_x = 0;
@@ -9418,6 +9559,13 @@ gl_FragColor.w*=u_object_material_rw[0].w;
         this.last_cam_reg_key = -1.1;
 
         this.tri_count = 0;
+
+
+        if (def.regions_from_image_url) {
+          for (i = 0; i < def.regions_from_image_url.length; i++) {
+            this.regions_from_image_url.apply(this, def.regions_from_image_url[i]);
+          }
+        }
 
       }
     })(proto.create);
@@ -10331,7 +10479,7 @@ gl_FragColor.w*=u_object_material_rw[0].w;
                 reg_data[j + 2] = _fp;
                 i += 6; j += 3;
               }
-
+              
               this.postMessage([100, reg_data.buffer], [reg_data.buffer]);
             };
 
@@ -10374,7 +10522,7 @@ gl_FragColor.w*=u_object_material_rw[0].w;
                 i = 0; j = 0;
                 while (i < oi) {
                   reg_data[j] = output[i + 2] * region_size1 + output[i];
-                  reg_data[j + 1] = 0; //  output[i + 1];
+                  reg_data[j + 1] =  output[i + 1];
 
                   _fp = (output[i + 3] << 16) | (output[i + 4] << 8) | output[i + 5];
                   reg_data[j + 2] = _fp / (1 << 24);
@@ -10387,13 +10535,16 @@ gl_FragColor.w*=u_object_material_rw[0].w;
 
                 rast_time = Date.now() - time_start;
 
+                
+                this.postMessage([op, reg_key, detail, reg.minh, reg.maxh, j,
+                  bindex, reg_data_buffer],
+                  [reg_data_buffer]);
+
+                return;
                 console.log('render reg',
                   rast_time + ' ms /' +
                   reg_key + '/' + detail + '/' + (j / 3)
                 );
-                this.postMessage([op, reg_key, detail, reg.minh, reg.maxh, j,
-                  bindex, reg_data_buffer],
-                  [reg_data_buffer]);
 
               };
 
@@ -10519,9 +10670,8 @@ gl_FragColor.w*=u_object_material_rw[0].w;
           };
 
           this.terrain.update_reg_bounds(reg);
-
-
           this.terrain.regions[reg_key] = reg;
+          this.terrain.camera_version = -1;
 
         };
 
@@ -10577,6 +10727,8 @@ gl_FragColor.w*=u_object_material_rw[0].w;
             new ArrayBuffer(1),
 
           ];
+
+          console.log('reg_data_buffers', reg_data_buffers);
           
           var i = 0;
           function get_buffer_index() {
@@ -10608,7 +10760,7 @@ gl_FragColor.w*=u_object_material_rw[0].w;
               reg.buffer = reg.buffer || raw.webgl.buffers.get(this.terrain.renderer.gl);
 
               this.terrain.renderer.gl.bindBuffer(34962, reg.buffer);
-              this.terrain.renderer.gl.bufferData(34962, reg_data, GL_DYNAMIC_DRAW, 0, ri);
+              this.terrain.renderer.gl.bufferData(34962, reg_data, 35048, 0, ri);
               reg.detail = detail;
               reg.state = 1;
 
@@ -10686,7 +10838,7 @@ gl_FragColor.w*=u_object_material_rw[0].w;
 
         this.worker[3100] = function () {
           if (this.terrain.camera) {
-            this.terrain.update_terrain(this.terrain.camera);
+            this.terrain.camera_version = -1;
           }
         };
 
@@ -10697,7 +10849,7 @@ gl_FragColor.w*=u_object_material_rw[0].w;
     })();
 
 
-    var time_start = 0, reg, reg_x, reg_z, reg_key, i = 0;
+    
 
     proto.update_terrain = (function () {
 
@@ -10705,11 +10857,11 @@ gl_FragColor.w*=u_object_material_rw[0].w;
       proto.validate_regions = (function () {
         var rk;
         return function () {
-          if (this.timer - this.last_validate_time < 5000) return;
+          if (this.timer - this.last_validate_time < 5) return;
           this.last_validate_time = this.timer;
           for (rk in this.regions) {
             reg = this.regions[rk];
-            if (reg.state > 0 && this.timer - reg.last_time > 2000) {
+            if (reg.state > 0 && this.timer - reg.last_time > 2) {
               reg.last_time = this.timer;
               if (reg.buffer) {
                 raw.webgl.buffers.free(reg.buffer);
@@ -10924,7 +11076,7 @@ gl_FragColor.w*=u_object_material_rw[0].w;
           this.worker.postMessage([1500, this.cam_reg.key, this.camera.world_position[0], this.camera.world_position[2]]);
         }
 
-        if (this.timer - this.last_updated_time < 50) {
+        if (this.timer - this.last_updated_time < 0.1) {
           this.update_requested = true;
           // return;
 
@@ -10951,9 +11103,9 @@ gl_FragColor.w*=u_object_material_rw[0].w;
         this.validate_regions();
 
         this.debug_text = ((Date.now() - time_start) + ' ms /regions ' + this.ri + '/' + (this.er / 2) +
-          '/buffers ' + raw.webgl.buffers.data.length + '/' + raw.webgl.buffers.allocated +
+          '/ buffers ' + raw.webgl.buffers.data.length + '/' + raw.webgl.buffers.allocated +
           ' parking ' + this.parking_length +
-          ' /tris ' + this.tri_count
+          ' / tris ' + this.tri_count
         );
       }
 
@@ -10966,12 +11118,24 @@ gl_FragColor.w*=u_object_material_rw[0].w;
     var reg_pos = raw.math.vec3(0, 0, 0);
     var cam_reg_pos = raw.math.vec3();
     proto.render_terrain = (function () {
-      var _di, _ds, i = 0;        
+      var _di, _ds,_ri=0, i = 0;        
 
       return function (renderer, shader) {
         //return;
+
+        cam_reg_pos[0] = this.cam_reg_x * this.region_size;
+        cam_reg_pos[1] = this.cam_reg_z * this.region_size;
+
+        shader.set_uniform('cam_reg_pos', cam_reg_pos);
+        cam_reg_pos[2] = this.region_size + 1;
+
+
+        renderer.bind_default_wireframe_indices();
+
+        this.tri_count = 0;
         i = 0;
-        while (i < this.ri) {
+        _ri = this.ri;
+        while (i < _ri) {
           reg = this.regions_to_render[i++];
           reg.last_time = this.timer;
           if (reg.buffer) {
@@ -10987,10 +11151,10 @@ gl_FragColor.w*=u_object_material_rw[0].w;
             renderer.gl.bindBuffer(34962, reg.buffer);
             renderer.gl.vertexAttribPointer(0, 3, 5126, false, 12, 0);
 
-            shader.setUniform('reg_pos', reg_pos);
+            shader.set_uniform('reg_pos', reg_pos);
 
             if (this.wireframe) {
-              shader.set_uniform('land_color', tge.vec3.set(land_color, 0.5, 0.5, 0.5));
+              shader.set_uniform('land_color', raw.math.vec3.set(land_color, 0.5, 0.5, 0.5));
               renderer.gl.drawElements(1, _di * 2, 5125, (_ds * 2) * 4);
             }
 
@@ -11068,9 +11232,17 @@ gl_FragColor.w*=u_object_material_rw[0].w;
 
   raw.ecs.register_system("terrain_system", raw.define(function (proto, _super) {    
 
+    var terrain = null;
     proto.step = function () {
+      this.worked_items = 0;
       while ((entity = this.ecs.iterate_entities("terrain")) !== null) {
-       
+        terrain = entity.terrain;
+        terrain.timer = this.ecs.timer;
+        if (terrain.camera.version !== terrain.camera_version) {
+          terrain.update_terrain();
+          terrain.camera_version = terrain.camera.version;
+          this.worked_items++;
+        }
       }
     };
     proto.validate = function (ecs) {
@@ -11518,6 +11690,14 @@ gl_FragColor = vec4((get_shadow_sample()*u_shadow_params_rw.x));
         gl.bindBuffer(34963, this.wireframe_index_buffer);
         gl.bufferData(34963, raw.geometry.create_index_data(indices), 35048);
         indices.length = 0;
+      };
+
+      proto.bind_default_wireframe_indices = function () {
+        if (!this.wireframe_index_buffer) {
+          this.reset_wireframe_index_buffer(gl, 100000 * 10);
+          this.compile_attribute(this.default_color_attribute);
+        }
+        this.gl.bindBuffer(34963, this.wireframe_index_buffer);
       };
 
       return function (geo, is_wireframe) {

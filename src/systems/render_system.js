@@ -341,6 +341,14 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
         indices.length = 0;
       };
 
+      proto.bind_default_wireframe_indices = function () {
+        if (!this.wireframe_index_buffer) {
+          this.reset_wireframe_index_buffer(gl, 100000 * 10);
+          this.compile_attribute(this.default_color_attribute);
+        }
+        this.gl.bindBuffer(raw.GL_ELEMENT_ARRAY_BUFFER, this.wireframe_index_buffer);
+      };
+
       return function (geo, is_wireframe) {
         gl = this.gl;
         if (geo.index_data) {

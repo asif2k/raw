@@ -107,7 +107,7 @@
         }
 
 
-        shader.set_uniform("u_object_material_rw", this.object_material)
+        shader.set_uniform("u_object_material_rw", this.object_material);
         shader.set_uniform("u_texture_matrix_rw", this.texture_matrix);
         shader.set_uniform("u_texture_rw", 0);
         renderer.use_texture(this.texture, 0);
