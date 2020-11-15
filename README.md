@@ -4,13 +4,13 @@ raw is a small and simple webgl 3d engine using vanilla javascript and webgl 1.1
 
 ## Main Features:
 ```
-Entity component system
+Hybrid entity component system
 Transform hierarchy with animation system
 Extendable shader system
 Phong model material system
 Fast and dirty shadow mapping system
 Unlimited lights system using forward rendering
-Multithread dynamic terrain system
+Worker based infinite terrain system with dynamic level of details
 Skeletal animation system with basic inverse kinematics using FABRIK
 ```
 
@@ -19,8 +19,8 @@ Skeletal animation system with basic inverse kinematics using FABRIK
 
 ## Roadmap
 ```
-Multithreaded physics engine
-Implement critical systems using web assembly
+Worker based physics engine with web assembly
+Improve critical systems using web assembly
 Dynamic sound system using basic sound sampler and synthesizer  
 Webvr support with positional 3d sound
 Tools for world editor and game designer
