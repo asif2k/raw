@@ -1,0 +1,40 @@
+﻿<!DOCTYPE html>
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <title>raw</title>
+  <script src="../raw.js"></script>
+  <script src="demo.js"></script>
+</head>
+
+<body>
+  <script>    
+    demo({}, function (app, renderer, camera) {    
+   
+      var t=app.create_entity({
+        components: {
+          'transform': {},
+          'terrain': {
+            camera: camera.camera,
+            renderer: renderer
+          }
+        }
+      });
+      console.log(t);
+      app.update_debug_canvas = function (ctx) {
+        ctx.fillText(t.terrain.debug_text, 10, 300);
+
+      }
+
+
+      app.begin_loop(function (delta) {
+        app.tick_debug(delta);
+      }, 1 / 30);
+
+      
+    });
+
+  </script>
+</body>
+</html>

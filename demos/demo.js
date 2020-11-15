@@ -9,8 +9,9 @@ function demo(params, cb) {
     components: [
       'transform',
       'camera',
-      'transform_controller',
+      'transform_controller',      
       'render_item',
+      'terrain',
       'render_list',
       'skeleton'
     ]
