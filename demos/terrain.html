@@ -9,9 +9,9 @@
 </head>
 
 <body>
-  <script>    
-    demo({}, function (app, renderer, camera) {    
-
+  <script>        
+    demo({}, function (app, renderer, camera) {
+      
       var ter = app.create_entity({
         components: {
           'transform': {},
@@ -25,7 +25,7 @@
             detail_levels: [1,4, 8, 12,16,22],
             region_distance: 8,
             regions_from_image_url: [
-              ["res/heightmap17.jpg", -6, -6, 0.25, 2048, 2048, 8]
+              ["res/heightmap10.jpg", -6, -6, 0.25, 2048, 2048, 8]
             ],
             material: {
               texture_tiles: [
@@ -40,7 +40,7 @@
                 "res/nm10.jpg",
                 "res/nm11.jpg"
               ],
-              shader: `
+              shader:`
 vec4 mix_texture_tiles(vec4 tile1,vec4 tile2,vec4 tile3,vec4 tile4,vec3 normal){
 	return mix(tile1,mix(read_tile(u_texture_tiles_rw,4.0, 1.0,0.0), tile3,0.5),abs(normal.x));
 }
@@ -59,12 +59,14 @@ void fragment(void){
         }
       });
       console.log(ter);     
+
+      // update terrain system 15 times in one sec
+      app.systems.terrain_system.step_size = 1/30;
       app.update_debug_canvas = function (ctx) {
         ctx.fillText('Terrain '+ ter.terrain.debug_text, 3, 500);
 
       };
 
-     // camera.transform_controller.set_rotate(-0.2,0,0)
       var ca = 0;
       app.begin_loop(function (delta) {
 
@@ -72,12 +74,18 @@ void fragment(void){
         camera.transform.position[2] = Math.cos(ca * raw.math.DEGTORAD) * 4096;
         camera.transform_controller.move_front_back(
           Math.cos(ca * raw.math.DEGTORAD) *
-          (Math.random()*4));
+          (Math.random()*1));
         camera.transform_controller.yaw_pitch(0,
            Math.sin(ca * raw.math.DEGTORAD) * 0.002);
         camera.transform.require_update = 1;
-        ca+=0.1;
+
+        app.default_light.transform_controller.rotate_eular(
+          -Math.sin((ca % 180) * raw.math.DEGTORAD) *0.5
+          , 160 * raw.math.DEGTORAD, 0);
+
+        ca += 0.025;
         ca = ca % 360;
+
 
 
 
@@ -91,7 +99,7 @@ void fragment(void){
         app.tick_debug(delta);
         
 
-      }, 1 / 60);
+      }, 1 / 90);
 
       
     });

@@ -245,7 +245,7 @@
       this.item_type = raw.ITEM_TYPES.LIGHT;
 
 
-      raw.math.vec4.copy(this.ambient, def.ambient || [0.59, 0.59, 0.59, 1.0]);
+      raw.math.vec4.copy(this.ambient, def.ambient || [0.89, 0.89, 0.89, 1.0]);
       raw.math.vec4.copy(this.diffuse, def.diffuse || [0.87, 0.87, 0.87, -1]);
       raw.math.vec4.copy(this.specular, def.specular || [0.85, 0.85, 0.85, -1]);
       raw.math.vec4.copy(this.attenuation, def.attenuation || [0, 0, 0, 0]);

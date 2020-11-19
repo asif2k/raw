@@ -5597,7 +5597,7 @@ gl_FragColor.w*=u_object_material_rw[0].w;
       this.item_type = 4;
 
 
-      raw.math.vec4.copy(this.ambient, def.ambient || [0.59, 0.59, 0.59, 1.0]);
+      raw.math.vec4.copy(this.ambient, def.ambient || [0.89, 0.89, 0.89, 1.0]);
       raw.math.vec4.copy(this.diffuse, def.diffuse || [0.87, 0.87, 0.87, -1]);
       raw.math.vec4.copy(this.specular, def.specular || [0.85, 0.85, 0.85, -1]);
       raw.math.vec4.copy(this.attenuation, def.attenuation || [0, 0, 0, 0]);
@@ -12192,7 +12192,7 @@ gl_FragColor = vec4((get_shadow_sample()*u_shadow_params_rw.x));
     this.active_camera = null;
 
     this.fog_params = raw.math.vec3(0, 0, 0);
-    this.fog_color =raw.math.vec4(0.65, 0.65, 0.65, 0.01);
+    this.fog_color =raw.math.vec4(0.165, 0.165, 0.165, 0.001);
 
   }
   proto.update_debug_canvas = function () {

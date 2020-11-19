@@ -243,7 +243,7 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
     this.active_camera = null;
 
     this.fog_params = raw.math.vec3(0, 0, 0);
-    this.fog_color =raw.math.vec4(0.65, 0.65, 0.65, 0.01);
+    this.fog_color =raw.math.vec4(0.165, 0.165, 0.165, 0.001);
 
   }
   proto.update_debug_canvas = function () {
