@@ -1,4 +1,24 @@
-﻿/*chunk-textured-quad*/
+﻿
+/*chunk-global-fog-effect*/
+uniform vec3 u_fog_params_rw;
+uniform vec4 u_fog_color_rw;
+float get_linear_fog_factor(float eye_dist)
+{  
+   return clamp( (u_fog_params_rw.y - eye_dist) /
+            (u_fog_params_rw.y - u_fog_params_rw.x ), 0.0, 1.0 );
+}
+
+vec4 mix_fog_color(vec4 frag_color){
+	float fog_density=0.0005;
+    const float LOG2=1.442695;
+    float z=gl_FragCoord.z/gl_FragCoord.w;
+    float fog_factor=exp2(-fog_density*fog_density*z*z*LOG2);
+    fog_factor=clamp(fog_factor,0.0,1.0);
+	return mix(u_fog_color_rw,frag_color,fog_factor);
+}
+
+
+/*chunk-textured-quad*/
 attribute vec2 a_position_rw;
 uniform vec4 u_pos_size;
 const vec2 madd=vec2(0.5,0.5);

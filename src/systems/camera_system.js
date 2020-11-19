@@ -10,7 +10,7 @@ raw.ecs.register_component("camera", raw.define(function (proto, _super) {
       this.update_view_projection = true;
       this.type = def.type || "perspective";
       if (this.type === "perspective") {
-        this.fov = (def.fov !== undefined ? def.fov : 50) * raw.math.DEGTORAD;
+        this.fov = (def.fov !== undefined ? def.fov : 60) * raw.math.DEGTORAD;
         this.near = def.near !== undefined ? near : 0.1;
         this.far = def.far !== undefined ? def.far : 2000;
         this.aspect = def.aspect !== undefined ? def.aspect : 1;
@@ -38,49 +38,7 @@ raw.ecs.register_component("camera", raw.define(function (proto, _super) {
   };
 
 
-  proto.yaw_pitch = function (dx, dy) {
-    this.rotate[0] += dx;
-    this.rotate[1] += dy;
-    raw.math.quat.rotate_eular(this.entity.transform.rotation, this.rotate[0], this.rotate[1], this.rotate[2]);
-    this.entity.transform.require_update = 1;
-  };
-
-  proto.set_rotate = function (x, y, z) {
-    this.rotate[0] = x;
-    this.rotate[1] = y;
-    this.rotate[2] = z;
-    raw.math.quat.rotate_eular(this.entity.transform.rotation, this.rotate[0], this.rotate[1], this.rotate[2]);
-    this.entity.transform.require_update = 1;
-  };
-
-  proto.set_position = function (x, y, z) {
-    this.entity.transform.position[0] = x;
-    this.entity.transform.position[1] = y;
-    this.entity.transform.position[2] = z;
-    this.entity.transform.require_update = 1;
-  };
-
-  proto.move_front_back = function (sp) {
-
-    this.entity.transform.position[0] += this.fw_vector[0] * sp;
-    this.entity.transform.position[1] += this.fw_vector[1] * sp;
-    this.entity.transform.position[2] += this.fw_vector[2] * sp;
-    this.entity.transform.require_update = 1;
-  };
-
-  proto.move_left_right = function (sp) {
-    this.entity.transform.position[0] += this.sd_vector[0] * sp;
-    this.entity.transform.position[1] += this.sd_vector[1] * sp;
-    this.entity.transform.position[2] += this.sd_vector[2] * sp;
-    this.entity.transform.require_update = 1;
-  };
-
-  proto.move_up_down = function (sp) {
-    this.entity.transform.position[0] += this.up_vector[0] * sp;
-    this.entity.transform.position[1] += this.up_vector[1] * sp;
-    this.entity.transform.position[2] += this.up_vector[2] * sp;
-    this.entity.transform.require_update = 1;
-  };
+  
   var len = 0;
   proto.update_frustum_plane = function (p, x, y, z, w) {
     len = x * x + y * y + z * z + w * w;
@@ -245,8 +203,6 @@ raw.ecs.register_component("camera", raw.define(function (proto, _super) {
     this.projection_inverse = raw.math.mat4();
     this.view_projection = raw.math.mat4();
     this.view_projection_inverse = raw.math.mat4();
-
-    this.rotate = raw.math.vec3(0, 0, 0);
 
     this.version = 0;
 

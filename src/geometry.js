@@ -440,30 +440,38 @@ raw.geometry = raw.define(function (proto) {
     return (this);
   }
     
-  geometry.create = function (def) {
+  geometry.create = (function () {
+    var vertex_size = 0;
+    return function (def) {
 
-    var g = new raw.geometry();
 
-    if (def.vertices) {
-      g.add_attribute("a_position_rw", { data: def.vertices });
-      g.num_items = def.vertices.length / 3;
+      vertex_size = def.vertex_size || 3;
+      var g = new raw.geometry();
+
+      if (def.vertices) {
+        g.add_attribute("a_position_rw", {
+          data: def.vertices,
+          item_size: vertex_size
+        });
+        g.num_items = def.vertices.length / vertex_size;
+      }
+
+      if (def.normals) {
+        g.add_attribute("a_normal_rw", { data: def.normals });
+      }
+
+      if (def.uvs) {
+        g.add_attribute("a_uvs_rw", { data: def.uvs, item_size: 2 });
+      }
+
+      if (def.colors) {
+        g.add_attribute("a_color_rw", { data: def.colors, item_size: 4 });
+      }
+
+      raw.geometry.calc_bounds(g, g.attributes.a_position_rw.data, 3);
+      return g;
     }
-
-    if (def.normals) {
-      g.add_attribute("a_normal_rw", { data: def.normals });
-    }
-
-    if (def.uvs) {
-      g.add_attribute("a_uvs_rw", { data: def.uvs, item_size: 2 });
-    }
-
-    if (def.colors) {
-      g.add_attribute("a_color_rw", { data: def.colors, item_size: 4 });
-    }
-
-    raw.geometry.calc_bounds(g, g.attributes.a_position_rw.data, 3);
-    return g;
-  }
+  })();
 
   geometry.cube = function (options) {
     options = options || {};

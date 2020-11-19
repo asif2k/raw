@@ -103,41 +103,6 @@ raw.ecs.register_component("transform", raw.define(function (proto, _super) {
 
 }, raw.ecs.component));
 
-raw.ecs.register_component("transform_controller", raw.define(function (proto, _super) {
-
-  proto.create = (function (_super_call) {
-    return function (def, entity) {
-      _super_call.apply(this, [def, entity]);
-      if (def.rotate) {
-        raw.math.vec3.copy(this.rotate, def.rotate);
-      }
-      this.transform = entity.transform;
-      this.rotate_eular(this.rotate[0], this.rotate[1], this.rotate[2]);
-
-    }
-  })(proto.create);
-
-
-  proto.rotate_eular = function (x, y, z) {
-    raw.math.quat.rotate_eular(this.transform.rotation, x, y, z);
-    this.transform.require_update = 1;
-  };
-  proto.yaw_pitch = function (dx, dy) {
-    this.rotate[0] += dx;
-    this.rotate[1] += dy;
-    this.rotate_eular(this.rotate[0], this.rotate[1], this.rotate[2]);
-  };
-
-
-  function transform_controller(component) {
-    _super.apply(this, [component]);
-    this.rotate = raw.math.vec3(0, 0, 0);
-  }
-
-  return transform_controller;
-
-}, raw.ecs.component));
-
 
 raw.ecs.register_system("transform_system", raw.define(function (proto, _super) {
 
@@ -340,6 +305,131 @@ raw.ecs.register_system("transform_system", raw.define(function (proto, _super) 
   return function transform_system(def, ecs) {
     _super.apply(this, [def, ecs]);
     this.priority = 100;    
+  }
+
+}, raw.ecs.system));
+
+
+
+
+raw.ecs.register_component("transform_controller", raw.define(function (proto, _super) {
+
+  proto.create = (function (_super_call) {
+    return function (def, entity) {
+      _super_call.apply(this, [def, entity]);
+      if (def.rotate) {
+        raw.math.vec3.copy(this.rotate, def.rotate);
+      }
+      this.transform = entity.transform;
+      this.rotate_eular(this.rotate[0], this.rotate[1], this.rotate[2]);
+
+    }
+  })(proto.create);
+
+
+  proto.rotate_eular = function (x, y, z) {
+    raw.math.quat.rotate_eular(this.transform.rotation, x, y, z);
+    this.transform.require_update = 1;
+  };
+  proto.yaw_pitch = function (dx, dy) {
+    this.rotate[0] += dx;
+    this.rotate[1] += dy;
+    raw.math.quat.rotate_eular(this.transform.rotation, this.rotate[0], this.rotate[1], this.rotate[2]);
+    this.transform.require_update = 1;
+  };
+
+  proto.set_rotate = function (x, y, z) {
+    this.rotate[0] = x;
+    this.rotate[1] = y;
+    this.rotate[2] = z;
+    raw.math.quat.rotate_eular(this.transform.rotation, this.rotate[0], this.rotate[1], this.rotate[2]);
+    this.transform.require_update = 1;
+  };
+
+  proto.set_position = function (x, y, z) {
+    this.transform.position[0] = x;
+    this.transform.position[1] = y;
+    this.transform.position[2] = z;
+    this.transform.require_update = 1;
+  };
+
+  proto.set_position_x = function (x) {
+    this.transform.position[0] = x;
+    this.transform.require_update = 1;
+  };
+  proto.set_position_y = function (y) {
+    this.transform.position[1] = y;
+    this.transform.require_update = 1;
+  };
+  proto.set_position_z = function (z) {    
+    this.transform.position[2] = z;
+    this.transform.require_update = 1;
+  };
+
+  proto.move_front_back = function (sp) {
+
+    this.transform.position[0] += this.fw_vector[0] * sp;
+    this.transform.position[1] += this.fw_vector[1] * sp;
+    this.transform.position[2] += this.fw_vector[2] * sp;
+    this.transform.require_update = 1;
+  };
+
+  proto.move_left_right = function (sp) {
+    this.transform.position[0] += this.sd_vector[0] * sp;
+    this.transform.position[1] += this.sd_vector[1] * sp;
+    this.transform.position[2] += this.sd_vector[2] * sp;
+    this.transform.require_update = 1;
+  };
+
+  proto.move_up_down = function (sp) {
+    this.transform.position[0] += this.up_vector[0] * sp;
+    this.transform.position[1] += this.up_vector[1] * sp;
+    this.transform.position[2] += this.up_vector[2] * sp;
+    this.transform.require_update = 1;
+  };
+
+  function transform_controller(component) {
+    _super.apply(this, [component]);
+    this.rotate = raw.math.vec3(0, 0, 0);
+    this.matrix_world = raw.math.mat4();
+    this.up_vector = new Float32Array(this.matrix_world.buffer, (4 * 4), 3);
+    this.fw_vector = new Float32Array(this.matrix_world.buffer, (8 * 4), 3);
+    this.sd_vector = new Float32Array(this.matrix_world.buffer, 0, 3);
+  }
+  transform_controller.validate = function (component) {
+    component.ecs.use_system('transform_controller_system');
+  };
+  return transform_controller;
+
+}, raw.ecs.component));
+
+
+
+raw.ecs.register_system("transform_controller_system", raw.define(function (proto, _super) {
+
+  var trans = null, entity = null, item = null, i = 0;
+  proto.step = function () {
+    this.worked_items = 0;
+    while ((entity = this.ecs.iterate_entities("transform_controller")) !== null) {
+      trans = entity.transform_controller;
+      if (trans.transform.require_update !== 0) {
+        raw.math.quat.to_mat4(trans.matrix_world, trans.transform.rotation_world);
+        raw.math.mat4.scale(trans.matrix_world, trans.transform.scale_world);
+        trans.matrix_world[12] = trans.transform.position_world[0];
+        trans.matrix_world[13] = trans.transform.position_world[1];
+        trans.matrix_world[14] = trans.transform.position_world[2];
+
+        this.worked_items++;
+      }
+    }
+  };
+  proto.validate = function (ecs) {
+    this.priority = ecs.use_system('transform_system').priority + 50;
+  };
+
+
+  return function render_item_system(def) {
+    _super.apply(this, [def]);
   }
 
 }, raw.ecs.system));

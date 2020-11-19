@@ -27,7 +27,10 @@ function demo(params, cb) {
   var camera = app.create_entity({
     components: {
       'transform': { position: [-4.483522891998291, 4.10715389251709, 15.562684059143066] },
-      'camera': {}
+      'camera': {
+        far: params.camera_far || 5000
+      },
+      'transform_controller': { }
     }
   });
 
@@ -43,8 +46,6 @@ function demo(params, cb) {
 
   app.render_items = app.default_entity.render_item.items;
 
-  camera.camera.set_rotate(9.424984348527232e-9, -0.24500030279159546, 0);
-
   raw.mouse_input.disable_right_click();
   app.mouse_input = new raw.mouse_input(renderer.gl.canvas);
 
@@ -52,9 +53,9 @@ function demo(params, cb) {
 
   app.mouse_input.mouse_wheel = function (sp, e) {
     if (e.shiftKey) {
-      camera.camera.move_front_back(-0.005 * sp);
+      camera.transform_controller.move_front_back(-0.005 * sp);
     }
-    else camera.camera.move_front_back(-0.01 * sp);
+    else camera.transform_controller.move_front_back(-0.01 * sp);
     app.fps_timer.invalidate_loop();
   };
 
@@ -89,8 +90,8 @@ function demo(params, cb) {
   });
 
   app.mouse_input.mouse_drage = function (dx, dy, e) {
-    camera.camera.move_left_right(-dx * 0.1);
-    camera.camera.move_up_down(dy * 0.1);
+    camera.transform_controller.move_left_right(-dx * 0.1);
+    camera.transform_controller.move_up_down(dy * 0.1);
     app.fps_timer.invalidate_loop();
 
   };
@@ -100,7 +101,7 @@ function demo(params, cb) {
       app.default_light.transform_controller.yaw_pitch(-dy * 0.005, -dx * 0.005);
     }
     else {
-      camera.camera.yaw_pitch(-dy * 0.005, -dx * 0.005);
+      camera.transform_controller.yaw_pitch(-dy * 0.005, -dx * 0.005);
       app.fps_timer.invalidate_loop();
     }
 

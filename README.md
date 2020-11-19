@@ -10,7 +10,7 @@ Extendable shader system
 Phong model material system
 Fast and dirty shadow mapping system
 Unlimited lights system using forward rendering
-Worker based infinite terrain system with dynamic level of details
+Worker based large terrain system with dynamic level of details and mesh simplification
 Skeletal animation system with basic inverse kinematics using FABRIK
 ```
 

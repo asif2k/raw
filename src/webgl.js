@@ -34,7 +34,7 @@ raw.webgl.texture = raw.define(function (proto) {
     this.target = target || raw.GL_TEXTURE_2D;
     this.parameters = {};
 
-    this.generate_mipmap = generate_mipmap;
+    this.generate_mipmap = generate_mipmap || false;
 
     this.parameters[raw.GL_TEXTURE_WRAP_S] = raw.GL_REPEAT;
     this.parameters[raw.GL_TEXTURE_WRAP_T] = raw.GL_REPEAT;
@@ -496,6 +496,9 @@ raw.webgl.shader = raw.define(function (proto) {
         name = chunk.substr(0, chunk.indexOf('*/') + 2);
         chunk = chunk.replace(name, '');
         name = name.replace('*/', '');
+        if (name.indexOf('global-') === 0) {
+          shader.chunks[name] = chunk;
+        }
         lib[name] = chunk;
       }
     });

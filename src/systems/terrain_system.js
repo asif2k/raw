@@ -6,12 +6,24 @@
   var terrain_material = raw.define(function (proto, _super) {
 
     proto.render_mesh = function (renderer, shader, mesh) {
+
+      this.depth_and_cull(renderer);
+
       shader.set_uniform("u_object_material_rw", this.object_material);
 
       shader.set_uniform("u_tile_size_rw", this.tile_size);
-      shader.set_uniform("u_tile_repeat_rw", this.tile_repeat);
+      shader.set_uniform("u_texture_repeat_rw", this.texture_repeat);
+      shader.set_uniform("u_normalmap_repeat_rw", this.normalmap_repeat);
 
       renderer.use_texture(this.texture_tiles, 0);
+      renderer.use_texture(this.normalmap_tiles, 1);
+
+
+      shader.set_uniform("u_normalmap_tiles_rw", 1);
+      
+     
+
+
       this.terrain.render_terrain(renderer, shader);
     };
 
@@ -26,11 +38,26 @@
       this.normalmap_tiles = null;
 
       this.tile_size = raw.math.vec2(512, 0);
-      this.tile_repeat = raw.math.vec4(8, 8, 8, 8);
+      this.texture_repeat = raw.math.vec4(4, 4,4, 4);
+      this.normalmap_repeat = raw.math.vec4(8, 8, 8,8);
+
 
 
       this.shader = terrain_material.shader;
       if (def.material) {
+
+        if (def.material.normalmap_tiles) {
+          this.normalmap_tiles = raw.webgl.texture.create_tiled_texture(def.material.normalmap_tiles,
+            def.material.tile_size || 512,
+            def.material.texture_size || 1024,
+            def.material.texture_size || 1024
+          );
+
+          this.tile_size[0] = this.normalmap_tiles.tile_sizef;
+          this.tile_size[1] = this.normalmap_tiles.tile_offsetf;
+
+        }
+
         if (def.material.texture_tiles) {
           this.texture_tiles = raw.webgl.texture.create_tiled_texture(def.material.texture_tiles,
             def.material.tile_size || 512,
@@ -43,8 +70,10 @@
 
         }
 
-        if (def.material.extend) {
-          this.shader = this.shader.extend(def.material.extend);
+       
+
+        if (def.material.shader) {
+          this.shader = this.shader.extend(def.material.shader);
         }
       }
 
@@ -60,20 +89,105 @@
   }, raw.shading.shaded_material);
 
 
-  
+  var create_skybox = (function () {
+    var skybox_material = raw.define(function (proto, _super) {
+
+      var view_direction_projection_matrix =raw.math.mat4();
+      var view_direction_projection_inverse_matrix = raw.math.mat4();
+
+      var sun_params = raw.math.vec4();
+      var tmat = raw.math.mat4();
+      proto.render_mesh = function (renderer, shader, mesh) {
+
+        this.depth_and_cull(renderer);
+
+        raw.math.mat4.copy(tmat, renderer.active_camera.view_inverse);
+        if (mesh.skybox_camera_version !== renderer.active_camera.version) {
+          tmat[12] = 0; tmat[13] = 0; tmat[14] = 0;
+
+          raw.math.mat4.multiply(view_direction_projection_matrix,
+            renderer.active_camera.projection,
+            tmat
+          );
+
+          raw.math.mat4.inverse(view_direction_projection_inverse_matrix, view_direction_projection_matrix);
+
+         
+          mesh.skybox_camera_version = renderer.active_camera.version;
+        }
+
+
+        
+
+
+        sun_params[0] = this.sun_direction[0];
+        sun_params[1] = this.sun_direction[1];
+        sun_params[2] = this.sun_direction[2];
+        sun_params[3] = this.sun_angular_diameter_cos;
+
+        shader.set_uniform("u_view_projection_matrix_rw", view_direction_projection_inverse_matrix);
+        shader.set_uniform("u_sun_params_rw", sun_params);
+        renderer.gl.depthFunc(raw.GL_LEQUAL);        
+        renderer.gl.drawArrays(4, 0, mesh.geometry.num_items);
+        renderer.gl.depthFunc(raw.GL_LESS);
+
+
+
+      };
+
+      function skybox_material(def) {
+        def = def || {};
+        _super.apply(this, [def]);   
+        this.shader = skybox_material.shader;
+
+        this.sun_direction = def.sun_direction || [0.0, 1.0, 0.0];
+        this.sun_angular_diameter_cos = 0.99991;
+
+      }
+      skybox_material.shader = raw.webgl.shader.parse(glsl["skybox"]);
+
+
+      return skybox_material;
+
+
+    }, raw.shading.material);
+
+
+    return function (def) {
+      return new raw.rendering.mesh({
+        flags: raw.DISPLAY_ALWAYS,
+        geometry: raw.geometry.create({
+          vertices: new Float32Array([
+            -1, -1,
+            1, -1,
+            -1, 1,
+            -1, 1,
+            1, -1,
+            1, 1,
+          ]), vertex_size: 2
+        }),
+        material: new skybox_material(def)
+      })
+
+    }
+
+  })();
+
   raw.ecs.register_component("terrain", raw.define(function (proto, _super) {
 
     var time_start = 0, reg, reg_x, reg_z, reg_key, i = 0;
     proto.create = (function (_super_call) {
       return function (def, entity) {        
         _super_call.apply(this, [def, entity]);
-        this.camera = def.camera;
         this.camera_version =986732;
         this.region_size = def.region_size || 512;
         this.world_size = def.world_size || (4096 * 2);
         this.region_size_width = this.region_size + 1;
         this.region_size_half = this.region_size * 0.5;
 
+
+        
+        
         this.items.push(new raw.rendering.mesh({
           flags: raw.DISPLAY_ALWAYS,
           geometry: raw.geometry.create({vertices: new Float32Array(0) }),
@@ -82,9 +196,12 @@
             material: def.material
           })
         }));
+        
 
+        if (def.skybox) {
+          this.items.push(create_skybox(def.skybox));
+        }
 
-        this.renderer = def.renderer;
 
         this.regions = {};
         this.objects = {};
@@ -109,11 +226,11 @@
         this.max_scale = 0;
         this.detail_levels = def.detail_levels || [1, 2, 6, 12, 20];
         this.parking_length = 0;
+        this.height_on_camera = 0;
+        this.camera_collision = def.camera_collision || false;
         this.setup_mesh_processor();
 
-        this.sun_x = 0;
-        this.sun_y = 0;
-        this.sun_z = 0;
+        this.sun_direction = def.sun_direction || [0.5, 0.5, 0.3];
         
         this.empty_regions = [];
         this.er = 0;
@@ -123,13 +240,10 @@
 
         this.tri_count = 0;
 
+        this.def_regions_from_image_url = def.regions_from_image_url;
+        
 
-        if (def.regions_from_image_url) {
-          for (i = 0; i < def.regions_from_image_url.length; i++) {
-            this.regions_from_image_url.apply(this, def.regions_from_image_url[i]);
-          }
-        }
-
+        this.initialized = false;
       }
     })(proto.create);
 
@@ -171,7 +285,11 @@
       })();
       proto.update_terrain_parameters = function () {
         this.worker.postMessage([100, this.world_size, this.region_size, this.terrain_quality]);
-        this.worker.postMessage([400, this.sun_x, this.sun_y, this.sun_z]);
+        this.worker.postMessage([400,
+          this.sun_direction[0] * this.world_size * this.region_size,
+          this.sun_direction[1] * this.world_size * this.region_size,
+          this.sun_direction[2] * this.world_size * this.region_size
+        ]);
       };
 
       proto.generate_regions = function (xs, zs, size, scale) {
@@ -1407,12 +1525,23 @@
 
 
 
-        this.update_terrain_parameters();
+        
       }
     })();
 
 
-    
+    proto.initialize = function (renderer) {
+      this.renderer = renderer;      
+      this.update_terrain_parameters();
+
+      if (this.def_regions_from_image_url) {
+        for (i = 0; i < this.def_regions_from_image_url.length; i++) {
+          this.regions_from_image_url.apply(this, this.def_regions_from_image_url[i]);
+        }
+      }
+      this.initialized = true;
+
+    };
 
     proto.update_terrain = (function () {
 
@@ -1625,14 +1754,14 @@
       }
 
       return function () {
-
+        
 
         this.cam_reg_x = Math.floor((this.camera.world_position[0] / this.region_size) + 0.5);
         this.cam_reg_z = Math.floor((this.camera.world_position[2] / this.region_size) + 0.5);
 
 
 
-        this.height_on_camera = 0;
+        
         cam_reg_key = this.cam_reg_z * this.world_size + this.cam_reg_x;
         this.cam_reg = this.regions[cam_reg_key];
         if (this.cam_reg) {
@@ -1665,10 +1794,11 @@
 
         this.validate_regions();
 
+
         this.debug_text = ((Date.now() - time_start) + ' ms /regions ' + this.ri + '/' + (this.er / 2) +
-          '/ buffers ' + raw.webgl.buffers.data.length + '/' + raw.webgl.buffers.allocated +
+          '/ vertex buffers ' + raw.webgl.buffers.data.length + '/' + raw.webgl.buffers.allocated +
           ' parking ' + this.parking_length +
-          ' / tris ' + this.tri_count
+          ' / tri count ' + this.tri_count
         );
       }
 
@@ -1684,13 +1814,18 @@
       var _di, _ds,_ri=0, i = 0;        
 
       return function (renderer, shader) {
-        //return;
+
+        if (!this.initialized) return;
+        
 
         cam_reg_pos[0] = this.cam_reg_x * this.region_size;
         cam_reg_pos[1] = this.cam_reg_z * this.region_size;
 
         shader.set_uniform('cam_reg_pos', cam_reg_pos);
         cam_reg_pos[2] = this.region_size + 1;
+        renderer.use_direct_texture(renderer.default_texture, 2);
+        shader.set_uniform("u_shadow_map", 2);
+
 
 
         renderer.bind_default_wireframe_indices();
@@ -1716,15 +1851,25 @@
 
             shader.set_uniform('reg_pos', reg_pos);
 
+            if (reg.smap) {
+            //  shader.set_uniform("u_shadow_map", 2);
+            //  renderer.use_texture(reg.smap, 2);
+              console.log('reg.smap', reg.smap);
+            }
+            else {
+              //shader.set_uniform("u_shadow_map", 3);              
+            }
+
             if (this.wireframe) {
-              shader.set_uniform('land_color', raw.math.vec3.set(land_color, 0.5, 0.5, 0.5));
+              shader.set_uniform('land_color', raw.math.vec3.set(land_color, 2.0, 2.0, 2.0));
               renderer.gl.drawElements(raw.GL_LINES, _di * 2, raw.GL_UNSIGNED_INT, (_ds * 2) * 4);
             }
 
 
             if (this.shaded) {            
-
-              raw.math.vec3.set(land_color, 0, 0, 0);
+            //renderer.use_texture(this.shadow_map, 1);
+             
+              raw.math.vec3.set(land_color, 1, 1, 1);
               shader.set_uniform('land_color', land_color);
               renderer.gl.drawArrays(raw.GL_TRIANGLES, _ds, _di);
             }
@@ -1732,7 +1877,9 @@
           }
 
         }
+        this.render_time = Date.now() - time_start;
 
+        return;
 
         if (this.empty_regions_buffer) {
           renderer.gl.bindBuffer(raw.GL_ARRAY_BUFFER, this.empty_regions_buffer);
@@ -1769,7 +1916,7 @@
         }
 
 
-        this.render_time = Date.now() - time_start;
+        
 
 
 
@@ -1801,15 +1948,34 @@
       while ((entity = this.ecs.iterate_entities("terrain")) !== null) {
         terrain = entity.terrain;
         terrain.timer = this.ecs.timer;
-        if (terrain.camera.version !== terrain.camera_version) {
-          terrain.update_terrain();
-          terrain.camera_version = terrain.camera.version;
-          this.worked_items++;
+        if (!terrain.initialized) {
+          terrain.initialize(this.renderer);
         }
+        else {
+          if (this.renderer.active_camera !== null) {
+            terrain.camera = this.renderer.active_camera;
+            if (terrain.camera.version !== terrain.camera_version) {
+              terrain.update_terrain();
+              terrain.camera_version = terrain.camera.version;
+              this.worked_items++;
+            }
+          }
+          
+        }
+
+        
       }
     };
+
     proto.validate = function (ecs) {
       this.priority = ecs.use_system('camera_system').priority + 50;
+
+      ecs._systems.for_each(function (sys, i, self) {
+        if (sys.is_renderer) {
+          self.renderer = sys;            
+        }
+
+      }, this);
     };
     return function terrain_system(def, ecs) {
       _super.apply(this, [def, ecs]);

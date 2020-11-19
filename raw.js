@@ -3090,7 +3090,7 @@ raw.ecs = raw.define(function (proto) {
       this.memory_blocks[name_id] = new raw.memory_block(initial_size);
     }
     return this.memory_blocks[name_id];
-  }
+  };
 
   var name_id, i = 0;
   proto.create_entity = function (def) {
@@ -3361,7 +3361,7 @@ raw.webgl.texture = raw.define(function (proto) {
     this.target = target || 3553;
     this.parameters = {};
 
-    this.generate_mipmap = generate_mipmap;
+    this.generate_mipmap = generate_mipmap || false;
 
     this.parameters[10242] = 10497;
     this.parameters[10243] = 10497;
@@ -3823,6 +3823,9 @@ raw.webgl.shader = raw.define(function (proto) {
         name = chunk.substr(0, chunk.indexOf('*/') + 2);
         chunk = chunk.replace(name, '');
         name = name.replace('*/', '');
+        if (name.indexOf('global-') === 0) {
+          shader.chunks[name] = chunk;
+        }
         lib[name] = chunk;
       }
     });
@@ -4776,30 +4779,38 @@ raw.geometry = raw.define(function (proto) {
     return (this);
   }
     
-  geometry.create = function (def) {
+  geometry.create = (function () {
+    var vertex_size = 0;
+    return function (def) {
 
-    var g = new raw.geometry();
 
-    if (def.vertices) {
-      g.add_attribute("a_position_rw", { data: def.vertices });
-      g.num_items = def.vertices.length / 3;
+      vertex_size = def.vertex_size || 3;
+      var g = new raw.geometry();
+
+      if (def.vertices) {
+        g.add_attribute("a_position_rw", {
+          data: def.vertices,
+          item_size: vertex_size
+        });
+        g.num_items = def.vertices.length / vertex_size;
+      }
+
+      if (def.normals) {
+        g.add_attribute("a_normal_rw", { data: def.normals });
+      }
+
+      if (def.uvs) {
+        g.add_attribute("a_uvs_rw", { data: def.uvs, item_size: 2 });
+      }
+
+      if (def.colors) {
+        g.add_attribute("a_color_rw", { data: def.colors, item_size: 4 });
+      }
+
+      raw.geometry.calc_bounds(g, g.attributes.a_position_rw.data, 3);
+      return g;
     }
-
-    if (def.normals) {
-      g.add_attribute("a_normal_rw", { data: def.normals });
-    }
-
-    if (def.uvs) {
-      g.add_attribute("a_uvs_rw", { data: def.uvs, item_size: 2 });
-    }
-
-    if (def.colors) {
-      g.add_attribute("a_color_rw", { data: def.colors, item_size: 4 });
-    }
-
-    raw.geometry.calc_bounds(g, g.attributes.a_position_rw.data, 3);
-    return g;
-  }
+  })();
 
   geometry.cube = function (options) {
     options = options || {};
@@ -5398,6 +5409,22 @@ gl_FragColor.w*=u_object_material_rw[0].w;
       return (this);
     };
 
+    proto.depth_and_cull = function (renderer) {
+      if (this.flags & 1024) {
+        renderer.gl.disable(2929);
+      }
+      else {
+        renderer.gl.enable(2929);
+      }
+
+
+      if ((this.flags & 2048) !== 0) {
+        renderer.gl.disable(2884);
+      }
+      else {
+        renderer.gl.enable(2884);
+      }
+    };
 
     proto.render_mesh = (function () {
       var eparams = [null, null, null]
@@ -6494,41 +6521,6 @@ raw.ecs.register_component("transform", raw.define(function (proto, _super) {
 
 }, raw.ecs.component));
 
-raw.ecs.register_component("transform_controller", raw.define(function (proto, _super) {
-
-  proto.create = (function (_super_call) {
-    return function (def, entity) {
-      _super_call.apply(this, [def, entity]);
-      if (def.rotate) {
-        raw.math.vec3.copy(this.rotate, def.rotate);
-      }
-      this.transform = entity.transform;
-      this.rotate_eular(this.rotate[0], this.rotate[1], this.rotate[2]);
-
-    }
-  })(proto.create);
-
-
-  proto.rotate_eular = function (x, y, z) {
-    raw.math.quat.rotate_eular(this.transform.rotation, x, y, z);
-    this.transform.require_update = 1;
-  };
-  proto.yaw_pitch = function (dx, dy) {
-    this.rotate[0] += dx;
-    this.rotate[1] += dy;
-    this.rotate_eular(this.rotate[0], this.rotate[1], this.rotate[2]);
-  };
-
-
-  function transform_controller(component) {
-    _super.apply(this, [component]);
-    this.rotate = raw.math.vec3(0, 0, 0);
-  }
-
-  return transform_controller;
-
-}, raw.ecs.component));
-
 
 raw.ecs.register_system("transform_system", raw.define(function (proto, _super) {
 
@@ -6735,6 +6727,131 @@ raw.ecs.register_system("transform_system", raw.define(function (proto, _super) 
 
 }, raw.ecs.system));
 
+
+
+
+raw.ecs.register_component("transform_controller", raw.define(function (proto, _super) {
+
+  proto.create = (function (_super_call) {
+    return function (def, entity) {
+      _super_call.apply(this, [def, entity]);
+      if (def.rotate) {
+        raw.math.vec3.copy(this.rotate, def.rotate);
+      }
+      this.transform = entity.transform;
+      this.rotate_eular(this.rotate[0], this.rotate[1], this.rotate[2]);
+
+    }
+  })(proto.create);
+
+
+  proto.rotate_eular = function (x, y, z) {
+    raw.math.quat.rotate_eular(this.transform.rotation, x, y, z);
+    this.transform.require_update = 1;
+  };
+  proto.yaw_pitch = function (dx, dy) {
+    this.rotate[0] += dx;
+    this.rotate[1] += dy;
+    raw.math.quat.rotate_eular(this.transform.rotation, this.rotate[0], this.rotate[1], this.rotate[2]);
+    this.transform.require_update = 1;
+  };
+
+  proto.set_rotate = function (x, y, z) {
+    this.rotate[0] = x;
+    this.rotate[1] = y;
+    this.rotate[2] = z;
+    raw.math.quat.rotate_eular(this.transform.rotation, this.rotate[0], this.rotate[1], this.rotate[2]);
+    this.transform.require_update = 1;
+  };
+
+  proto.set_position = function (x, y, z) {
+    this.transform.position[0] = x;
+    this.transform.position[1] = y;
+    this.transform.position[2] = z;
+    this.transform.require_update = 1;
+  };
+
+  proto.set_position_x = function (x) {
+    this.transform.position[0] = x;
+    this.transform.require_update = 1;
+  };
+  proto.set_position_y = function (y) {
+    this.transform.position[1] = y;
+    this.transform.require_update = 1;
+  };
+  proto.set_position_z = function (z) {    
+    this.transform.position[2] = z;
+    this.transform.require_update = 1;
+  };
+
+  proto.move_front_back = function (sp) {
+
+    this.transform.position[0] += this.fw_vector[0] * sp;
+    this.transform.position[1] += this.fw_vector[1] * sp;
+    this.transform.position[2] += this.fw_vector[2] * sp;
+    this.transform.require_update = 1;
+  };
+
+  proto.move_left_right = function (sp) {
+    this.transform.position[0] += this.sd_vector[0] * sp;
+    this.transform.position[1] += this.sd_vector[1] * sp;
+    this.transform.position[2] += this.sd_vector[2] * sp;
+    this.transform.require_update = 1;
+  };
+
+  proto.move_up_down = function (sp) {
+    this.transform.position[0] += this.up_vector[0] * sp;
+    this.transform.position[1] += this.up_vector[1] * sp;
+    this.transform.position[2] += this.up_vector[2] * sp;
+    this.transform.require_update = 1;
+  };
+
+  function transform_controller(component) {
+    _super.apply(this, [component]);
+    this.rotate = raw.math.vec3(0, 0, 0);
+    this.matrix_world = raw.math.mat4();
+    this.up_vector = new Float32Array(this.matrix_world.buffer, (4 * 4), 3);
+    this.fw_vector = new Float32Array(this.matrix_world.buffer, (8 * 4), 3);
+    this.sd_vector = new Float32Array(this.matrix_world.buffer, 0, 3);
+  }
+  transform_controller.validate = function (component) {
+    component.ecs.use_system('transform_controller_system');
+  };
+  return transform_controller;
+
+}, raw.ecs.component));
+
+
+
+raw.ecs.register_system("transform_controller_system", raw.define(function (proto, _super) {
+
+  var trans = null, entity = null, item = null, i = 0;
+  proto.step = function () {
+    this.worked_items = 0;
+    while ((entity = this.ecs.iterate_entities("transform_controller")) !== null) {
+      trans = entity.transform_controller;
+      if (trans.transform.require_update !== 0) {
+        raw.math.quat.to_mat4(trans.matrix_world, trans.transform.rotation_world);
+        raw.math.mat4.scale(trans.matrix_world, trans.transform.scale_world);
+        trans.matrix_world[12] = trans.transform.position_world[0];
+        trans.matrix_world[13] = trans.transform.position_world[1];
+        trans.matrix_world[14] = trans.transform.position_world[2];
+
+        this.worked_items++;
+      }
+    }
+  };
+  proto.validate = function (ecs) {
+    this.priority = ecs.use_system('transform_system').priority + 50;
+  };
+
+
+  return function render_item_system(def) {
+    _super.apply(this, [def]);
+  }
+
+}, raw.ecs.system));
+
 /*src/systems/camera_system.js*/
 
 
@@ -6749,7 +6866,7 @@ raw.ecs.register_component("camera", raw.define(function (proto, _super) {
       this.update_view_projection = true;
       this.type = def.type || "perspective";
       if (this.type === "perspective") {
-        this.fov = (def.fov !== undefined ? def.fov : 50) * 0.017453292519943295;
+        this.fov = (def.fov !== undefined ? def.fov : 60) * 0.017453292519943295;
         this.near = def.near !== undefined ? near : 0.1;
         this.far = def.far !== undefined ? def.far : 2000;
         this.aspect = def.aspect !== undefined ? def.aspect : 1;
@@ -6777,49 +6894,7 @@ raw.ecs.register_component("camera", raw.define(function (proto, _super) {
   };
 
 
-  proto.yaw_pitch = function (dx, dy) {
-    this.rotate[0] += dx;
-    this.rotate[1] += dy;
-    raw.math.quat.rotate_eular(this.entity.transform.rotation, this.rotate[0], this.rotate[1], this.rotate[2]);
-    this.entity.transform.require_update = 1;
-  };
-
-  proto.set_rotate = function (x, y, z) {
-    this.rotate[0] = x;
-    this.rotate[1] = y;
-    this.rotate[2] = z;
-    raw.math.quat.rotate_eular(this.entity.transform.rotation, this.rotate[0], this.rotate[1], this.rotate[2]);
-    this.entity.transform.require_update = 1;
-  };
-
-  proto.set_position = function (x, y, z) {
-    this.entity.transform.position[0] = x;
-    this.entity.transform.position[1] = y;
-    this.entity.transform.position[2] = z;
-    this.entity.transform.require_update = 1;
-  };
-
-  proto.move_front_back = function (sp) {
-
-    this.entity.transform.position[0] += this.fw_vector[0] * sp;
-    this.entity.transform.position[1] += this.fw_vector[1] * sp;
-    this.entity.transform.position[2] += this.fw_vector[2] * sp;
-    this.entity.transform.require_update = 1;
-  };
-
-  proto.move_left_right = function (sp) {
-    this.entity.transform.position[0] += this.sd_vector[0] * sp;
-    this.entity.transform.position[1] += this.sd_vector[1] * sp;
-    this.entity.transform.position[2] += this.sd_vector[2] * sp;
-    this.entity.transform.require_update = 1;
-  };
-
-  proto.move_up_down = function (sp) {
-    this.entity.transform.position[0] += this.up_vector[0] * sp;
-    this.entity.transform.position[1] += this.up_vector[1] * sp;
-    this.entity.transform.position[2] += this.up_vector[2] * sp;
-    this.entity.transform.require_update = 1;
-  };
+  
   var len = 0;
   proto.update_frustum_plane = function (p, x, y, z, w) {
     len = x * x + y * y + z * z + w * w;
@@ -6984,8 +7059,6 @@ raw.ecs.register_component("camera", raw.define(function (proto, _super) {
     this.projection_inverse = raw.math.mat4();
     this.view_projection = raw.math.mat4();
     this.view_projection_inverse = raw.math.mat4();
-
-    this.rotate = raw.math.vec3(0, 0, 0);
 
     this.version = 0;
 
@@ -9392,10 +9465,13 @@ varying mat3 v_tbn_matrix;
 
 uniform vec3 land_color;
 
-uniform sampler2D u_texture_tiles;
+uniform sampler2D u_texture_tiles_rw;
+uniform sampler2D u_normalmap_tiles_rw;
+uniform sampler2D u_shadow_map_rw;
 
 uniform vec2 u_tile_size_rw;
-uniform vec4 u_tile_repeat_rw;
+uniform vec4 u_texture_repeat_rw;
+uniform vec4 u_normalmap_repeat_rw;
 
 float tile_size;
 vec2 tile_uv;
@@ -9406,7 +9482,7 @@ vec4 mix_texture_tiles(vec4 tile1,vec4 tile2,vec4 tile3,vec4 tile4,vec3 normal);
 vec4 read_tile(sampler2D texture,float tile_repeat, float tx,float ty);
 
 vec4 mix_texture_tiles(vec4 tile1,vec4 tile2,vec4 tile3,vec4 tile4,vec3 normal){
-return mix(tile1,tile3,abs(normal.y));
+return mix(tile4,tile2,abs(normal.y));
 }
 
 
@@ -9418,37 +9494,385 @@ vec4 read_tile(sampler2D texture,float tile_repeat, float tx,float ty){
   return texture2D(texture, uv);
 }
 
+
+
+vec2 texelSize=vec2(1.0/128.0,1.0/128.0);
+float sample_smap(vec2 coords){
+vec2 pixelPos = coords / texelSize + vec2(0.5);
+vec2 fracPart = fract(pixelPos);
+vec2 startTexel = (pixelPos - fracPart) * texelSize;
+float blTexel = texture2D(u_shadow_map_rw, startTexel).r;
+float brTexel = texture2D(u_shadow_map_rw, startTexel + vec2(texelSize.x, 0.0)).r;
+float tlTexel = texture2D(u_shadow_map_rw, startTexel + vec2(0.0, texelSize.y)).r;
+float trTexel = texture2D(u_shadow_map_rw, startTexel + texelSize).r;
+float mixA = mix(blTexel, tlTexel, fracPart.y);
+float mixB = mix(brTexel, trTexel, fracPart.y);
+return mix(mixA, mixB, fracPart.x);
+}
+
+
+
+float sample_smap_pcf(vec2 coords)
+{
+const float NUM_SAMPLES = 3.0;
+const float SAMPLES_START = (NUM_SAMPLES - 1.0) / 2.0;
+const float NUM_SAMPLES_SQUARED = NUM_SAMPLES * NUM_SAMPLES;
+float result = 0.0;
+for (float y = -SAMPLES_START; y <= SAMPLES_START; y += 1.0)
+{
+for (float x = -SAMPLES_START; x <= SAMPLES_START; x += 1.0)
+{
+vec2 coordsOffset = vec2(x, y) * texelSize;
+result += sample_smap(coords + coordsOffset);
+}
+}
+return result / NUM_SAMPLES_SQUARED;
+}
+
+
+<?=chunk('global-fog-effect')?>
+
 void fragment(void) {
 
 tile_size=u_tile_size_rw.x;
 tile_offset=u_tile_size_rw.y;
 
-  vec3 fws_direction_to_eye = normalize(u_eye_position_rw.xyz - v_position_rw.xyz);
+ 
+vec4 tile1=read_tile(u_texture_tiles_rw,u_texture_repeat_rw.x, 0.0,0.0);
+vec4 tile2=read_tile(u_texture_tiles_rw,u_texture_repeat_rw.y, 1.0,0.0);
+vec4 tile3=read_tile(u_texture_tiles_rw,u_texture_repeat_rw.z, 0.0,1.0);
+vec4 tile4=read_tile(u_texture_tiles_rw,u_texture_repeat_rw.w, 1.0,1.0);
+
+vec3 norm1=(2.0 * read_tile(u_normalmap_tiles_rw,u_normalmap_repeat_rw.x, 0.0,0.0).xyz - 1.0);
+vec3 norm2=(2.0 * read_tile(u_normalmap_tiles_rw,u_normalmap_repeat_rw.y, 1.0,0.0).xyz - 1.0);
+vec3 norm3=(2.0 * read_tile(u_normalmap_tiles_rw,u_normalmap_repeat_rw.z, 0.0,1.0).xyz - 1.0);
+vec3 norm4=(2.0 * read_tile(u_normalmap_tiles_rw,u_normalmap_repeat_rw.w, 1.0,1.0).xyz - 1.0);
+
+
+vec3 normal=(norm1*v_normal_rw.x)+(norm4*v_normal_rw.x)+(norm3*v_normal_rw.z);
+
+normal=normalize(v_normal_rw+normal);
+
+ vec3 fws_direction_to_eye = normalize(u_eye_position_rw.xyz - v_position_rw.xyz);
 fws_total_light=fws_lighting_calc(u_object_material_rw,v_position_rw.xyz,
-normalize(v_normal_rw),fws_direction_to_eye);
+normal,
+fws_direction_to_eye);
 
-vec4 tile1=read_tile(u_texture_tiles,u_tile_repeat_rw.x, 0.0,0.0);
-vec4 tile2=read_tile(u_texture_tiles,u_tile_repeat_rw.y, 1.0,0.0);
-vec4 tile3=read_tile(u_texture_tiles,u_tile_repeat_rw.z, 0.0,1.0);
-vec4 tile4=read_tile(u_texture_tiles,u_tile_repeat_rw.w, 1.0,1.0);
 
-gl_FragColor = vec4(fws_total_light+land_color, u_object_material_rw[0].w)*
-mix_texture_tiles(tile1,tile2,tile3,tile4,v_normal_rw);
-gl_FragColor.w*=u_object_material_rw[0].w;
+
+
+gl_FragColor = vec4((fws_total_light
+
+)*land_color, u_object_material_rw[0].w)*
+mix_texture_tiles(tile1,tile2,tile3,tile4,normal);
+//gl_FragColor.w*=u_object_material_rw[0].w;
+gl_FragColor=mix_fog_color(gl_FragColor);
 }
 
-`);
+
+
+/*chunk-skybox*/
+<?=chunk('precision')?>
+attribute vec4 a_position_rw;
+varying vec4 v_position_rw;
+
+void vertex(){
+ v_position_rw = a_position_rw;
+ gl_Position = a_position_rw;
+ gl_Position.z = 1.0;
+}
+
+
+<?=chunk('precision')?>
+uniform mat4 u_view_projection_matrix_rw;
+uniform vec4 u_sun_params_rw;
+varying vec4 v_position_rw;
+vec3 fragPosition;
+
+const float turbidity = 10.0;
+const float reileigh = 2.0;
+const float mieCoefficient = 0.005;
+const float mieDirectionalG = 0.8;
+
+const float e = 2.71828182845904523536028747135266249775724709369995957;
+const float pi = 3.141592653589793238462643383279502884197169;
+
+const float n = 1.0003;// refractive index of air
+const float N = 2.545E25; // number of molecules per unit volume for air at
+
+const float pn = 0.035;
+// wavelength of used primaries, according to preetham
+const vec3 lambda = vec3(680E-9, 550E-9, 450E-9);
+
+const vec3 K = vec3(0.686, 0.678, 0.666);
+const float v = 4.0;
+
+const float rayleighZenithLength = 8.4E3;
+const float mieZenithLength = 1.25E3;
+const vec3 up = vec3(0.0, 1.0, 0.0);
+
+const float EE = 1000.0;
+
+float sunAngularDiameterCos =u_sun_params_rw.w; // 0.999956;
+
+const float cutoffAngle = pi/1.95;
+const float steepness = 1.5;
+
+vec3 simplifiedRayleigh() {
+return 0.0005 / vec3(94, 40, 18);
+}
+
+float rayleighPhase(float cosTheta) {
+return (3.0 / (16.0*pi)) * (1.0 + pow(cosTheta, 2.0));
+}
+
+vec3 totalMie(vec3 lambda, vec3 K, float T) {
+float c = (0.2 * T ) * 10E-18;
+return 0.434 * c * pi * pow((2.0 * pi) / lambda, vec3(v - 2.0)) * K;
+}
+
+float hgPhase(float cosTheta, float g) {
+return (1.0 / (4.0*pi)) * ((1.0 - pow(g, 2.0)) / pow(1.0 - 2.0*g*cosTheta + pow(g, 2.0), 1.5));
+}
+
+float sunIntensity(float zenithAngleCos) {
+return EE * max(0.0, 1.0 - pow(e, -((cutoffAngle - acos(zenithAngleCos))/steepness)));
+}
+
+float A = 0.15;
+float B = 0.50;
+float C = 0.10;
+float D = 0.20;
+float E = 0.02;
+float F = 0.30;
+float W = 1000.0;
+
+vec3 Uncharted2Tonemap(vec3 x) {
+  return ((x*(A*x+C*B)+D*E)/(x*(A*x+B)+D*F))-E/F;
+}
+
+<?=chunk('global-fog-effect')?>
+
+void fragment(void) {
+
+  fragPosition=(u_view_projection_matrix_rw * v_position_rw).xyz;
+vec3 sunPosition=u_sun_params_rw.xyz;
+float sunfade = 1.0 - clamp(1.0 - exp(sunPosition.y), 0.0, 1.0);
+float reileighCoefficient = reileigh - (1.0 * (1.0-sunfade));
+vec3 sunDirection = normalize(sunPosition);
+float sunE = sunIntensity(dot(sunDirection, up));
+vec3 betaR = simplifiedRayleigh() * reileighCoefficient;
+
+// mie coefficients
+vec3 betaM = totalMie(lambda, K, turbidity) * mieCoefficient;
+
+// optical length
+// cutoff angle at 90 to avoid singularity in next formula.
+float zenithAngle = acos(max(0.0, dot(up, normalize(fragPosition))));
+float sR = rayleighZenithLength / (cos(zenithAngle) + 0.15 * pow(93.885 - ((zenithAngle * 180.0) / pi), -1.253));
+float sM = mieZenithLength / (cos(zenithAngle) + 0.15 * pow(93.885 - ((zenithAngle * 180.0) / pi), -1.253));
+
+// combined extinction factor
+vec3 Fex = exp(-(betaR * sR + betaM * sM));
+
+// in scattering
+float cosTheta = dot(normalize(fragPosition), sunDirection);
+
+float rPhase = rayleighPhase(cosTheta * 0.5+0.5);
+vec3 betaRTheta = betaR * rPhase;
+
+float mPhase = hgPhase(cosTheta, mieDirectionalG);
+vec3 betaMTheta = betaM * mPhase;
+
+vec3 Lin = pow(sunE * ((betaRTheta + betaMTheta) / (betaR + betaM)) * (1.0 - Fex),vec3(1.5));
+Lin *= mix(vec3(1.0),pow(sunE * ((betaRTheta + betaMTheta) / (betaR + betaM)) * Fex,vec3(1.0/2.0)),clamp(pow(1.0-dot(up, sunDirection),5.0),0.0,1.0));
+
+//nightsky
+vec3 direction = normalize(fragPosition);
+float theta = acos(direction.y); // elevation --> y-axis, [-pi/2, pi/2]
+float phi = atan(direction.z, direction.x); // azimuth --> x-axis [-pi/2, pi/2]
+vec2 uv = vec2(phi, theta) / vec2(2.0*pi, pi) + vec2(0.5, 0.0);
+vec3 L0 = vec3(0.1) * Fex;
+
+// composition + solar disc
+float sundisk = smoothstep(sunAngularDiameterCos,sunAngularDiameterCos+0.00002,cosTheta);
+L0 += (sunE * 19000.0 * Fex)*sundisk;
+
+vec3 whiteScale = 1.0/Uncharted2Tonemap(vec3(W));
+
+vec3 texColor = (Lin+L0);
+texColor *= 0.04 ;
+texColor += vec3(0.0,0.001,0.0025)*0.3;
+
+vec3 curr = Uncharted2Tonemap(texColor);
+vec3 color = curr*whiteScale;
+
+vec3 retColor = pow(color,vec3(1.0/(1.2+(1.2*sunfade))));
+
+gl_FragColor = vec4(retColor, 1.0);
+gl_FragColor=mix_fog_color(gl_FragColor);
+
+}
+
+
+
+
+
+/*chunk-skybox2*/
+<?=chunk('precision')?>
+attribute vec4 a_position_rw;
+varying vec4 v_position_rw;
+
+void vertex(){
+ v_position_rw = a_position_rw;
+ gl_Position = a_position_rw;
+ gl_Position.z = 1.0;
+}
+
+
+<?=chunk('precision')?>
+uniform mat4 u_view_projection_matrix_rw;
+uniform vec4 u_sun_params_rw;
+varying vec4 v_position_rw;
+
+
+const float depolarizationFactor=0.067;
+const float luminance=1.0;
+const float mieCoefficient=0.00335;
+const float mieDirectionalG=0.787;
+const vec3 mieKCoefficient=vec3(0.686,0.678,0.666);
+const float mieV=4.012;
+const float mieZenithLength=500.0;
+const float numMolecules=2.542e+25;
+const vec3 primaries=vec3(6.8e-7,5.5e-7,4.5e-7);
+const float rayleigh=1.0;
+const float rayleighZenithLength=615.0;
+const float refractiveIndex=1.000317;
+const float sunAngularDiameterDegrees=0.00758;
+const float sunIntensityFactor=1111.0;
+const float sunIntensityFalloffSteepness=0.98;
+const float tonemapWeighting=9.50;
+const float turbidity=1.25;
+
+const float PI = 3.141592653589793238462643383279502884197169;
+const vec3 UP = vec3(0.0, 1.0, 0.0);
+
+vec3 totalRayleigh(vec3 lambda)
+{
+return (8.0 * pow(PI, 3.0) * pow(pow(refractiveIndex, 2.0) - 1.0, 2.0) * (6.0 + 3.0 * depolarizationFactor)) / (3.0 * numMolecules * pow(lambda, vec3(4.0)) * (6.0 - 7.0 * depolarizationFactor));
+}
+
+vec3 totalMie(vec3 lambda, vec3 K, float T)
+{
+float c = 0.2 * T * 10e-18;
+return 0.434 * c * PI * pow((2.0 * PI) / lambda, vec3(mieV - 2.0)) * K;
+}
+
+float rayleighPhase(float cosTheta)
+{
+return (3.0 / (16.0 * PI)) * (1.0 + pow(cosTheta, 2.0));
+}
+
+float henyeyGreensteinPhase(float cosTheta, float g)
+{
+return (1.0 / (4.0 * PI)) * ((1.0 - pow(g, 2.0)) / pow(1.0 - 2.0 * g * cosTheta + pow(g, 2.0), 1.5));
+}
+
+float sunIntensity(float zenithAngleCos)
+{
+float cutoffAngle = PI / 1.95; // Earth shadow hack
+return sunIntensityFactor * max(0.0, 1.0 - exp(-((cutoffAngle - acos(zenithAngleCos)) / sunIntensityFalloffSteepness)));
+}
+
+// Whitescale tonemapping calculation, see http://filmicgames.com/archives/75
+// Also see http://blenderartists.org/forum/showthread.php?321110-Shaders-and-Skybox-madness
+const float A = 0.15; // Shoulder strength
+const float B = 0.50; // Linear strength
+const float C = 0.10; // Linear angle
+const float D = 0.20; // Toe strength
+const float E = 0.02; // Toe numerator
+const float F = 0.30; // Toe denominator
+vec3 Uncharted2Tonemap(vec3 W)
+{
+return ((W * (A * W + C * B) + D * E) / (W * (A * W + B) + D * F)) - E / F;
+}
+
+
+
+void fragment(void) {
+
+ vec3 fragPosition=normalize((u_view_projection_matrix_rw * v_position_rw).xyz);
+ // In-scattering
+vec3 sunDirection=u_sun_params_rw.xyz;
+
+
+ //float sunfade = 1.0 - clamp(1.0 - exp(((sunDirection*4500000.0).y / 450000.0)), 0.0, 1.0);
+
+ float sunfade = 1.0 - clamp(1.0 - exp(sunDirection.y), 0.0, 1.0);
+float rayleighCoefficient = rayleigh - (1.0 * (1.0 - sunfade));
+vec3 betaR = totalRayleigh(primaries) * rayleighCoefficient;
+
+// Mie coefficient
+vec3 betaM = totalMie(primaries, mieKCoefficient, turbidity) * mieCoefficient;
+
+// Optical length, cutoff angle at 90 to avoid singularity
+float zenithAngle = acos(max(0.0, dot(UP, fragPosition)));
+float denom = cos(zenithAngle) + 0.15 * pow(93.885 - ((zenithAngle * 180.0) / PI), -1.253);
+float sR = rayleighZenithLength / denom;
+float sM = mieZenithLength / denom;
+
+// Combined extinction factor
+vec3 Fex = exp(-(betaR * sR + betaM * sM));
+
+
+float cosTheta = dot(fragPosition, sunDirection);
+vec3 betaRTheta = betaR * rayleighPhase(cosTheta * 0.5 + 0.5);
+vec3 betaMTheta = betaM * henyeyGreensteinPhase(cosTheta, mieDirectionalG);
+float sunE = sunIntensity(dot(sunDirection, UP));
+vec3 Lin = pow(sunE * ((betaRTheta + betaMTheta) / (betaR + betaM)) * (1.0 - Fex), vec3(1.5));
+Lin *= mix(vec3(1.0), pow(sunE * ((betaRTheta + betaMTheta) / (betaR + betaM)) * Fex, vec3(0.5)), clamp(pow(1.0 - dot(UP, sunDirection), 5.0), 0.0, 1.0));
+
+// Composition + solar disc
+float sunAngularDiameterCos = cos(sunAngularDiameterDegrees);
+float sundisk = smoothstep(sunAngularDiameterCos, sunAngularDiameterCos + 0.00002, cosTheta);
+vec3 L0 = vec3(0.1) * Fex;
+L0 += sunE * 19000.0 * Fex * sundisk;
+vec3 texColor = Lin + L0;
+texColor *= 0.04;
+texColor += vec3(0.0, 0.001, 0.0025) * 0.3;
+
+// Tonemapping
+vec3 whiteScale = 1.0 / Uncharted2Tonemap(vec3(tonemapWeighting));
+vec3 curr = Uncharted2Tonemap((log2(2.0 / pow(luminance, 4.0))) * texColor);
+vec3 color = curr * whiteScale;
+vec3 retColor = pow(color, vec3(1.0 / (1.2 + (1.2 * sunfade))));
+
+gl_FragColor = vec4(retColor, 1.0);
+}
+}`);
 
 
   var terrain_material = raw.define(function (proto, _super) {
 
     proto.render_mesh = function (renderer, shader, mesh) {
+
+      this.depth_and_cull(renderer);
+
       shader.set_uniform("u_object_material_rw", this.object_material);
 
       shader.set_uniform("u_tile_size_rw", this.tile_size);
-      shader.set_uniform("u_tile_repeat_rw", this.tile_repeat);
+      shader.set_uniform("u_texture_repeat_rw", this.texture_repeat);
+      shader.set_uniform("u_normalmap_repeat_rw", this.normalmap_repeat);
 
       renderer.use_texture(this.texture_tiles, 0);
+      renderer.use_texture(this.normalmap_tiles, 1);
+
+
+      shader.set_uniform("u_normalmap_tiles_rw", 1);
+      
+     
+
+
       this.terrain.render_terrain(renderer, shader);
     };
 
@@ -9463,11 +9887,26 @@ gl_FragColor.w*=u_object_material_rw[0].w;
       this.normalmap_tiles = null;
 
       this.tile_size = raw.math.vec2(512, 0);
-      this.tile_repeat = raw.math.vec4(8, 8, 8, 8);
+      this.texture_repeat = raw.math.vec4(4, 4,4, 4);
+      this.normalmap_repeat = raw.math.vec4(8, 8, 8,8);
+
 
 
       this.shader = terrain_material.shader;
       if (def.material) {
+
+        if (def.material.normalmap_tiles) {
+          this.normalmap_tiles = raw.webgl.texture.create_tiled_texture(def.material.normalmap_tiles,
+            def.material.tile_size || 512,
+            def.material.texture_size || 1024,
+            def.material.texture_size || 1024
+          );
+
+          this.tile_size[0] = this.normalmap_tiles.tile_sizef;
+          this.tile_size[1] = this.normalmap_tiles.tile_offsetf;
+
+        }
+
         if (def.material.texture_tiles) {
           this.texture_tiles = raw.webgl.texture.create_tiled_texture(def.material.texture_tiles,
             def.material.tile_size || 512,
@@ -9480,8 +9919,10 @@ gl_FragColor.w*=u_object_material_rw[0].w;
 
         }
 
-        if (def.material.extend) {
-          this.shader = this.shader.extend(def.material.extend);
+       
+
+        if (def.material.shader) {
+          this.shader = this.shader.extend(def.material.shader);
         }
       }
 
@@ -9497,20 +9938,105 @@ gl_FragColor.w*=u_object_material_rw[0].w;
   }, raw.shading.shaded_material);
 
 
-  
+  var create_skybox = (function () {
+    var skybox_material = raw.define(function (proto, _super) {
+
+      var view_direction_projection_matrix =raw.math.mat4();
+      var view_direction_projection_inverse_matrix = raw.math.mat4();
+
+      var sun_params = raw.math.vec4();
+      var tmat = raw.math.mat4();
+      proto.render_mesh = function (renderer, shader, mesh) {
+
+        this.depth_and_cull(renderer);
+
+        raw.math.mat4.copy(tmat, renderer.active_camera.view_inverse);
+        if (mesh.skybox_camera_version !== renderer.active_camera.version) {
+          tmat[12] = 0; tmat[13] = 0; tmat[14] = 0;
+
+          raw.math.mat4.multiply(view_direction_projection_matrix,
+            renderer.active_camera.projection,
+            tmat
+          );
+
+          raw.math.mat4.inverse(view_direction_projection_inverse_matrix, view_direction_projection_matrix);
+
+         
+          mesh.skybox_camera_version = renderer.active_camera.version;
+        }
+
+
+        
+
+
+        sun_params[0] = this.sun_direction[0];
+        sun_params[1] = this.sun_direction[1];
+        sun_params[2] = this.sun_direction[2];
+        sun_params[3] = this.sun_angular_diameter_cos;
+
+        shader.set_uniform("u_view_projection_matrix_rw", view_direction_projection_inverse_matrix);
+        shader.set_uniform("u_sun_params_rw", sun_params);
+        renderer.gl.depthFunc(515);        
+        renderer.gl.drawArrays(4, 0, mesh.geometry.num_items);
+        renderer.gl.depthFunc(513);
+
+
+
+      };
+
+      function skybox_material(def) {
+        def = def || {};
+        _super.apply(this, [def]);   
+        this.shader = skybox_material.shader;
+
+        this.sun_direction = def.sun_direction || [0.0, 1.0, 0.0];
+        this.sun_angular_diameter_cos = 0.99991;
+
+      }
+      skybox_material.shader = raw.webgl.shader.parse(glsl["skybox"]);
+
+
+      return skybox_material;
+
+
+    }, raw.shading.material);
+
+
+    return function (def) {
+      return new raw.rendering.mesh({
+        flags: 1,
+        geometry: raw.geometry.create({
+          vertices: new Float32Array([
+            -1, -1,
+            1, -1,
+            -1, 1,
+            -1, 1,
+            1, -1,
+            1, 1,
+          ]), vertex_size: 2
+        }),
+        material: new skybox_material(def)
+      })
+
+    }
+
+  })();
+
   raw.ecs.register_component("terrain", raw.define(function (proto, _super) {
 
     var time_start = 0, reg, reg_x, reg_z, reg_key, i = 0;
     proto.create = (function (_super_call) {
       return function (def, entity) {        
         _super_call.apply(this, [def, entity]);
-        this.camera = def.camera;
         this.camera_version =986732;
         this.region_size = def.region_size || 512;
         this.world_size = def.world_size || (4096 * 2);
         this.region_size_width = this.region_size + 1;
         this.region_size_half = this.region_size * 0.5;
 
+
+        
+        
         this.items.push(new raw.rendering.mesh({
           flags: 1,
           geometry: raw.geometry.create({vertices: new Float32Array(0) }),
@@ -9519,9 +10045,12 @@ gl_FragColor.w*=u_object_material_rw[0].w;
             material: def.material
           })
         }));
+        
 
+        if (def.skybox) {
+          this.items.push(create_skybox(def.skybox));
+        }
 
-        this.renderer = def.renderer;
 
         this.regions = {};
         this.objects = {};
@@ -9546,11 +10075,11 @@ gl_FragColor.w*=u_object_material_rw[0].w;
         this.max_scale = 0;
         this.detail_levels = def.detail_levels || [1, 2, 6, 12, 20];
         this.parking_length = 0;
+        this.height_on_camera = 0;
+        this.camera_collision = def.camera_collision || false;
         this.setup_mesh_processor();
 
-        this.sun_x = 0;
-        this.sun_y = 0;
-        this.sun_z = 0;
+        this.sun_direction = def.sun_direction || [0.5, 0.5, 0.3];
         
         this.empty_regions = [];
         this.er = 0;
@@ -9560,13 +10089,10 @@ gl_FragColor.w*=u_object_material_rw[0].w;
 
         this.tri_count = 0;
 
+        this.def_regions_from_image_url = def.regions_from_image_url;
+        
 
-        if (def.regions_from_image_url) {
-          for (i = 0; i < def.regions_from_image_url.length; i++) {
-            this.regions_from_image_url.apply(this, def.regions_from_image_url[i]);
-          }
-        }
-
+        this.initialized = false;
       }
     })(proto.create);
 
@@ -9608,7 +10134,11 @@ gl_FragColor.w*=u_object_material_rw[0].w;
       })();
       proto.update_terrain_parameters = function () {
         this.worker.postMessage([100, this.world_size, this.region_size, this.terrain_quality]);
-        this.worker.postMessage([400, this.sun_x, this.sun_y, this.sun_z]);
+        this.worker.postMessage([400,
+          this.sun_direction[0] * this.world_size * this.region_size,
+          this.sun_direction[1] * this.world_size * this.region_size,
+          this.sun_direction[2] * this.world_size * this.region_size
+        ]);
       };
 
       proto.generate_regions = function (xs, zs, size, scale) {
@@ -10844,12 +11374,23 @@ gl_FragColor.w*=u_object_material_rw[0].w;
 
 
 
-        this.update_terrain_parameters();
+        
       }
     })();
 
 
-    
+    proto.initialize = function (renderer) {
+      this.renderer = renderer;      
+      this.update_terrain_parameters();
+
+      if (this.def_regions_from_image_url) {
+        for (i = 0; i < this.def_regions_from_image_url.length; i++) {
+          this.regions_from_image_url.apply(this, this.def_regions_from_image_url[i]);
+        }
+      }
+      this.initialized = true;
+
+    };
 
     proto.update_terrain = (function () {
 
@@ -11062,14 +11603,14 @@ gl_FragColor.w*=u_object_material_rw[0].w;
       }
 
       return function () {
-
+        
 
         this.cam_reg_x = Math.floor((this.camera.world_position[0] / this.region_size) + 0.5);
         this.cam_reg_z = Math.floor((this.camera.world_position[2] / this.region_size) + 0.5);
 
 
 
-        this.height_on_camera = 0;
+        
         cam_reg_key = this.cam_reg_z * this.world_size + this.cam_reg_x;
         this.cam_reg = this.regions[cam_reg_key];
         if (this.cam_reg) {
@@ -11102,10 +11643,11 @@ gl_FragColor.w*=u_object_material_rw[0].w;
 
         this.validate_regions();
 
+
         this.debug_text = ((Date.now() - time_start) + ' ms /regions ' + this.ri + '/' + (this.er / 2) +
-          '/ buffers ' + raw.webgl.buffers.data.length + '/' + raw.webgl.buffers.allocated +
+          '/ vertex buffers ' + raw.webgl.buffers.data.length + '/' + raw.webgl.buffers.allocated +
           ' parking ' + this.parking_length +
-          ' / tris ' + this.tri_count
+          ' / tri count ' + this.tri_count
         );
       }
 
@@ -11121,13 +11663,18 @@ gl_FragColor.w*=u_object_material_rw[0].w;
       var _di, _ds,_ri=0, i = 0;        
 
       return function (renderer, shader) {
-        //return;
+
+        if (!this.initialized) return;
+        
 
         cam_reg_pos[0] = this.cam_reg_x * this.region_size;
         cam_reg_pos[1] = this.cam_reg_z * this.region_size;
 
         shader.set_uniform('cam_reg_pos', cam_reg_pos);
         cam_reg_pos[2] = this.region_size + 1;
+        renderer.use_direct_texture(renderer.default_texture, 2);
+        shader.set_uniform("u_shadow_map", 2);
+
 
 
         renderer.bind_default_wireframe_indices();
@@ -11153,15 +11700,25 @@ gl_FragColor.w*=u_object_material_rw[0].w;
 
             shader.set_uniform('reg_pos', reg_pos);
 
+            if (reg.smap) {
+            //  shader.set_uniform("u_shadow_map", 2);
+            //  renderer.use_texture(reg.smap, 2);
+              console.log('reg.smap', reg.smap);
+            }
+            else {
+              //shader.set_uniform("u_shadow_map", 3);              
+            }
+
             if (this.wireframe) {
-              shader.set_uniform('land_color', raw.math.vec3.set(land_color, 0.5, 0.5, 0.5));
+              shader.set_uniform('land_color', raw.math.vec3.set(land_color, 2.0, 2.0, 2.0));
               renderer.gl.drawElements(1, _di * 2, 5125, (_ds * 2) * 4);
             }
 
 
             if (this.shaded) {            
-
-              raw.math.vec3.set(land_color, 0, 0, 0);
+            //renderer.use_texture(this.shadow_map, 1);
+             
+              raw.math.vec3.set(land_color, 1, 1, 1);
               shader.set_uniform('land_color', land_color);
               renderer.gl.drawArrays(4, _ds, _di);
             }
@@ -11169,7 +11726,9 @@ gl_FragColor.w*=u_object_material_rw[0].w;
           }
 
         }
+        this.render_time = Date.now() - time_start;
 
+        return;
 
         if (this.empty_regions_buffer) {
           renderer.gl.bindBuffer(34962, this.empty_regions_buffer);
@@ -11206,7 +11765,7 @@ gl_FragColor.w*=u_object_material_rw[0].w;
         }
 
 
-        this.render_time = Date.now() - time_start;
+        
 
 
 
@@ -11238,15 +11797,34 @@ gl_FragColor.w*=u_object_material_rw[0].w;
       while ((entity = this.ecs.iterate_entities("terrain")) !== null) {
         terrain = entity.terrain;
         terrain.timer = this.ecs.timer;
-        if (terrain.camera.version !== terrain.camera_version) {
-          terrain.update_terrain();
-          terrain.camera_version = terrain.camera.version;
-          this.worked_items++;
+        if (!terrain.initialized) {
+          terrain.initialize(this.renderer);
         }
+        else {
+          if (this.renderer.active_camera !== null) {
+            terrain.camera = this.renderer.active_camera;
+            if (terrain.camera.version !== terrain.camera_version) {
+              terrain.update_terrain();
+              terrain.camera_version = terrain.camera.version;
+              this.worked_items++;
+            }
+          }
+          
+        }
+
+        
       }
     };
+
     proto.validate = function (ecs) {
       this.priority = ecs.use_system('camera_system').priority + 50;
+
+      ecs._systems.for_each(function (sys, i, self) {
+        if (sys.is_renderer) {
+          self.renderer = sys;            
+        }
+
+      }, this);
     };
     return function terrain_system(def, ecs) {
       _super.apply(this, [def, ecs]);
@@ -11264,7 +11842,27 @@ gl_FragColor.w*=u_object_material_rw[0].w;
 
 raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
 
-  var glsl = raw.webgl.shader.create_chunks_lib(`/*chunk-textured-quad*/
+  var glsl = raw.webgl.shader.create_chunks_lib(`
+/*chunk-global-fog-effect*/
+uniform vec3 u_fog_params_rw;
+uniform vec4 u_fog_color_rw;
+float get_linear_fog_factor(float eye_dist)
+{ 
+  return clamp( (u_fog_params_rw.y - eye_dist) /
+      (u_fog_params_rw.y - u_fog_params_rw.x ), 0.0, 1.0 );
+}
+
+vec4 mix_fog_color(vec4 frag_color){
+float fog_density=0.0005;
+  const float LOG2=1.442695;
+  float z=gl_FragCoord.z/gl_FragCoord.w;
+  float fog_factor=exp2(-fog_density*fog_density*z*z*LOG2);
+  fog_factor=clamp(fog_factor,0.0,1.0);
+return mix(u_fog_color_rw,frag_color,fog_factor);
+}
+
+
+/*chunk-textured-quad*/
 attribute vec2 a_position_rw;
 uniform vec4 u_pos_size;
 const vec2 madd=vec2(0.5,0.5);
@@ -11537,7 +12135,9 @@ gl_FragColor = vec4((get_shadow_sample()*u_shadow_params_rw.x));
     this.texture_slots = [-1, -1, -1, -1, -1, -1 - 1, -1, -1, -1];
     this.texture_updates = new raw.array();
     this.default_texture = new raw.webgl.texture();
+    this.default_texture.needs_update = true;
     raw.webgl.texture.update(gl, this.default_texture);
+    console.log('this.default_texture', this.default_texture.gl_texture);
 
     this.u_timer_rw = raw.math.vec3();
     gl.enable(2929);
@@ -11577,6 +12177,7 @@ gl_FragColor = vec4((get_shadow_sample()*u_shadow_params_rw.x));
     this.enable_pickables = false;
     this.pickables_pass = false;
     this.picking_color_id = 980;
+    this.active_camera = null;
 
     this.default_color_attribute = {
       name: "a_color_rw",
@@ -11587,8 +12188,11 @@ gl_FragColor = vec4((get_shadow_sample()*u_shadow_params_rw.x));
 
 
     this.default_color_attribute.data.fill(1);
-
+    this.is_renderer = true;
     this.active_camera = null;
+
+    this.fog_params = raw.math.vec3(0, 0, 0);
+    this.fog_color =raw.math.vec4(0.65, 0.65, 0.65, 0.01);
 
   }
   proto.update_debug_canvas = function () {
@@ -11865,6 +12469,8 @@ gl_FragColor = vec4((get_shadow_sample()*u_shadow_params_rw.x));
       }
       this.gl.useProgram(shader.program);
 
+      shader.set_uniform("u_fog_params_rw", this.fog_params);
+      shader.set_uniform("u_fog_color_rw", this.fog_color);      
       shader.set_uniform('u_timer_rw', this.u_timer_rw);
       this.active_shader = shader;
       this.active_shader.camera_version = -1;
@@ -12456,7 +13062,7 @@ gl_FragColor = vec4((get_shadow_sample()*u_shadow_params_rw.x));
       opuque_meshes.clear();
       flat_meshes.clear();
 
-      this.gl.disable(2884);
+      
       for (i0 = 0; i0 < list.meshes.length; i0++) {
         mesh = list.meshes.data[i0];
 

@@ -19,7 +19,7 @@ raw.ecs = raw.define(function (proto) {
       this.memory_blocks[name_id] = new raw.memory_block(initial_size);
     }
     return this.memory_blocks[name_id];
-  }
+  };
 
   var name_id, i = 0;
   proto.create_entity = function (def) {

@@ -186,7 +186,9 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
     this.texture_slots = [-1, -1, -1, -1, -1, -1 - 1, -1, -1, -1];
     this.texture_updates = new raw.array();
     this.default_texture = new raw.webgl.texture();
+    this.default_texture.needs_update = true;
     raw.webgl.texture.update(gl, this.default_texture);
+    console.log('this.default_texture', this.default_texture.gl_texture);
 
     this.u_timer_rw = raw.math.vec3();
     gl.enable(raw.GL_DEPTH_TEST);
@@ -226,6 +228,7 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
     this.enable_pickables = false;
     this.pickables_pass = false;
     this.picking_color_id = 980;
+    this.active_camera = null;
 
     this.default_color_attribute = {
       name: "a_color_rw",
@@ -236,8 +239,11 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
 
 
     this.default_color_attribute.data.fill(1);
-
+    this.is_renderer = true;
     this.active_camera = null;
+
+    this.fog_params = raw.math.vec3(0, 0, 0);
+    this.fog_color =raw.math.vec4(0.65, 0.65, 0.65, 0.01);
 
   }
   proto.update_debug_canvas = function () {
@@ -514,6 +520,8 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
       }
       this.gl.useProgram(shader.program);
 
+      shader.set_uniform("u_fog_params_rw", this.fog_params);
+      shader.set_uniform("u_fog_color_rw", this.fog_color);      
       shader.set_uniform('u_timer_rw', this.u_timer_rw);
       this.active_shader = shader;
       this.active_shader.camera_version = -1;
@@ -1105,7 +1113,7 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
       opuque_meshes.clear();
       flat_meshes.clear();
 
-      this.gl.disable(raw.GL_CULL_FACE);
+      
       for (i0 = 0; i0 < list.meshes.length; i0++) {
         mesh = list.meshes.data[i0];
 

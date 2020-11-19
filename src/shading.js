@@ -57,6 +57,22 @@
       return (this);
     };
 
+    proto.depth_and_cull = function (renderer) {
+      if (this.flags & raw.SHADING.NO_DEPTH_TEST) {
+        renderer.gl.disable(raw.GL_DEPTH_TEST);
+      }
+      else {
+        renderer.gl.enable(raw.GL_DEPTH_TEST);
+      }
+
+
+      if ((this.flags & raw.SHADING.DOUBLE_SIDES) !== 0) {
+        renderer.gl.disable(raw.GL_CULL_FACE);
+      }
+      else {
+        renderer.gl.enable(raw.GL_CULL_FACE);
+      }
+    };
 
     proto.render_mesh = (function () {
       var eparams = [null, null, null]
