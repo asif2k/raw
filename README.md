@@ -42,8 +42,6 @@ https://asif2k.github.io/raw/demos/demo1.html
 Large terrain with dyamic lod and mesh simplification
 https://asif2k.github.io/raw/demos/terrain.html
 
-
-
 ## Usage
 ```
 
