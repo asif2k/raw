@@ -124,11 +124,22 @@ raw.geometry = raw.define(function (proto) {
     var v1 = raw.math.vec3(), v2 = raw.math.vec3(), v3 = raw.math.vec3();
     var v1v2 = raw.math.vec3(), v1v3 = raw.math.vec3(), normal = raw.math.vec3();
     var v2v3Alias = raw.math.vec3(), v2v3Alias = raw.math.vec3();
+    var i1, i2, i3;
+    var normals;
+    geometry.invert_normals = function (geo) {
+      normals = geo.attributes.a_normal_rw.data;
+      for (i1 = 0; i1 < normals.length; i1 += 3) {
+        normals[i1] = -normals[i1];
+        normals[i1+1] = -normals[i1+1];
+        normals[i1+2] = -normals[i1+2];
+      }
+      geo.attributes.needs_update = true;
+    };
 
     return function (geo, flateFaces) {
 
       var vertices = geo.attributes.a_position_rw.data;
-      var normals
+      
       if (!geo.attributes.tge_a_normal) {
         geo.addAttribute('a_normal_rw', {
           data: new Float32Array(vertices.length)
@@ -141,7 +152,7 @@ raw.geometry = raw.define(function (proto) {
       normals.fill(0);
 
 
-      var i1, i2, i3;
+     
       var weight1, weight2;
       var total = vertices.length;
       var step = 9;
@@ -480,7 +491,9 @@ raw.geometry = raw.define(function (proto) {
     options.size = options.size || 1;
     var width = options.width || options.size;
     var height = options.height || options.size;
-    var depth = options.depth || options.size;
+    var depth = options.depth;
+
+    if (depth === undefined) depth = options.size;
     var divs = options.divs || 1;
 
     var divs_x = Math.floor(options.divs_x) || divs;
@@ -838,7 +851,8 @@ raw.geometry = raw.define(function (proto) {
     }
   })();
 
- 
+
+  
 
   return geometry;
 

@@ -149,7 +149,7 @@ raw.ecs.register_system("render_list_system", raw.define(function (proto, _super
                   list.meshes.push(item);
                 }
                 else if (item.item_type === raw.ITEM_TYPES.LIGHT) {
-                  list.lights.push(item);
+                  if (item.enabled) list.lights.push(item);
                 }
               }
             }

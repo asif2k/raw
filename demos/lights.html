@@ -1,0 +1,156 @@
+﻿<!DOCTYPE html>
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <title>raw</title>
+  <script src="../raw.js"></script>
+  <script src="demo.js"></script>
+</head>
+
+<body>
+  <script>    
+    demo({ lights_count_per_pass:8  }, function (app, renderer, camera) {
+     
+           
+
+      app.create_render_item(new raw.rendering.mesh({
+        geometry: raw.geometry.cube({size:210 }),
+        material: new raw.shading.shaded_material({
+          flags: raw.SHADING.DOUBLE_SIDES,
+          specular:[0.93,0.93,0.93]
+        })
+      }), function (entity, box) {
+
+        raw.geometry.invert_normals(box.geometry);
+          entity.transform.set_position(0, 0, 0);
+          box.material.texture = raw.webgl.texture.from_url("res/r4.jpg", true);
+          raw.math.mat3.translate_rotate_scale(box.material.texture_matrix, 0, 0, 8, 8, 0);
+      });
+
+      var i = 0;
+
+
+      var tex = raw.webgl.texture.from_url("res/tex4.jpg", true);
+      app.add_random_grid(100, 40, function (m) {        
+        m.transform.position[1] = RND(80) -40;
+        m.transform.position[2] = -95;
+        i = RND(4) + 2;
+        m.transform.set_scale(i, i, i);
+        m.render_item.items[0].material.texture = tex;
+        
+      });
+
+
+      app.default_light.render_item.items[0]
+        .set_intensity(0.01).set_ambient(0.2, 0.2, 0.2);
+
+
+      var lights_num = 50;
+
+      var lights = [];
+      for (i = 0; i < lights_num; i++) {
+        app.create_render_item(new raw.shading.point_light(), function (entity, light) {          
+          light.set_diffuse(RND(), RND(), RND()).set_intensity(25)
+            .set_attenuation_by_distance(25);
+          lights.push(entity);
+          entity.ca1 = RND(360);
+          entity.ca2 = RND(360);
+        });
+      }
+      for (i = 0; i < lights_num; i++) {
+        app.create_render_item(new raw.shading.spot_light(), function (entity, light) {          
+          light.set_diffuse(RND(), RND(), RND()).set_intensity(25)
+            .set_attenuation_by_distance(25);
+          lights.push(entity);
+          entity.ca1 = RND(360);
+          entity.ca2 = RND(360);
+        });
+      }
+
+
+      app.update_debug_canvas = function (ctx) {
+        ctx.fillText((lights_num *2) + ' lights ' , 3, 500);
+
+      };
+      var ca = 0;
+      camera.transform.set_position(0, 0, 0);
+
+    
+
+
+      var caa = 0;
+      function animate_lights() {
+        lights.forEach(function (l) {
+
+          caa = ca + l.ca1;
+          caa = caa % 360;
+          l.transform.set_position(
+            Math.sin(caa * raw.math.DEGTORAD) * 100,
+            0,
+            (Math.cos(caa * raw.math.DEGTORAD) *20)-90
+          );
+
+          
+
+          caa = ca + l.ca2;
+          caa = caa % 360;
+
+          l.transform.set_position(
+            ((l.transform.position[0] +
+              Math.sin(caa * raw.math.DEGTORAD) * 100) / 200) * 100,
+            Math.cos(caa * raw.math.DEGTORAD) * 100,
+            l.transform.position[2]
+          );
+
+
+          l.transform.rotate_eular(
+            Math.sin(caa * raw.math.DEGTORAD) * 0.1,
+            0,
+            Math.cos(caa * raw.math.DEGTORAD) * 0.02);
+
+
+          
+        });
+        ca += 1;
+        ca = ca % 360;
+        
+      }
+
+
+      app.begin_loop(function (delta) {
+        
+        //camera.transform.position[0] = Math.sin(ca * raw.math.DEGTORAD) * 100;
+        //camera.transform.position[2] = Math.cos(ca * raw.math.DEGTORAD) * 100;
+        
+       
+        /*
+        sp1.transform.set_position(
+          Math.sin(ca * raw.math.DEGTORAD) * 100,
+          0,
+          Math.cos(ca * raw.math.DEGTORAD) * 100
+        );
+
+        sp1.transform.set_position(
+          ((sp1.transform.position[0] +
+          Math.sin(ca * raw.math.DEGTORAD) * 100)/200)*100,          
+          Math.cos(ca * raw.math.DEGTORAD) * 50,
+          sp1.transform.position[2] 
+        );
+
+        ca += 1;
+        ca = ca % 360;
+        */
+
+        camera.transform_controller.yaw_pitch(0, Math.cos((ca) * raw.math.DEGTORAD) * 0.01);
+        animate_lights();
+        
+        app.tick_debug(delta);
+      }, 1 / 60);
+
+      
+    });
+
+  </script>
+</body>
+</html>

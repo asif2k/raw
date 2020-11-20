@@ -24,6 +24,11 @@
         m.render_item.items[0].material.flags += raw.SHADING.RECEIVE_SHADOW;
       });
 
+      app.default_light.render_item.items[0].enable_shadows({
+        cast_shadows: true,
+        shadow_map_size: 2048,
+        shadow_camera_distance: 20
+      });
       
       app.add_random_grid(100, 10, function (m) {
          m.render_item.items[0].material.flags += raw.SHADING.CAST_SHADOW + raw.SHADING.RECEIVE_SHADOW;

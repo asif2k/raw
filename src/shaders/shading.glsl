@@ -82,7 +82,8 @@ void vertex(){
     gl_Position=u_view_projection_rw*v_position_rw;
 	v_normal_rw=(u_model_rw*att_normal()).xyz;	
 	v_uv_rw=(u_texture_matrix_rw*att_uv()).xy;
-	 v_color_rw=a_color_rw;
+	v_color_rw=a_color_rw;
+		
 }
 
 <?=chunk('precision')?>

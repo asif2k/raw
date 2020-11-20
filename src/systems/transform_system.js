@@ -34,6 +34,17 @@ raw.ecs.register_component("transform", raw.define(function (proto, _super) {
     this.require_update = Math.max(this.require_update, v);
   };
 
+  proto.set_position = function (x, y, z) {
+    raw.math.vec3.set(this.position, x, y, z);
+    this.require_update = 1;
+  };
+
+
+  proto.set_scale = function (x, y, z) {
+    raw.math.vec3.set(this.scale, x, y, z);
+    this.require_update = 1;
+  };
+
   proto.rotate_eular = function (x, y, z) {
     raw.math.quat.rotate_eular(this.rotation, x, y, z);
     this.require_update = 1;

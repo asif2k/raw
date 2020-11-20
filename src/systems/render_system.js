@@ -4,19 +4,19 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
   var glsl = raw.webgl.shader.create_chunks_lib(import('systems/render_system.glsl'));
 
   function setup_gl_state(gl) {
-    gl.states = { depthMask: false, blendFunc0: -1, blendFunc1: -1, framebuffer: undefined };
+    gl.states = {
+      depthMask: false, blendFunc0: -1, blendFunc1: -1, framebuffer: undefined,      
+    };
+    gl.states_flags = new Uint8Array(1024 * 64);
 
 
     var pm1 = [null];
     var pm2 = [null, null];
 
-    gl.enable2 = gl.enable;
-    gl.disable2 = gl.disable;
-
     gl.enable = (function (_super, gl) {
       return function (state) {
-        if (gl.states[state] === true) return (false);
-        gl.states[state] = true;
+        if (gl.states_flags[state] === 1) return (false);
+        gl.states_flags[state] = 1;
         pm1[0] = state;
         _super.apply(gl, pm1);
         return (true);
@@ -25,8 +25,8 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
 
     gl.disable = (function (_super, gl) {
       return function (state) {
-        if (gl.states[state] === false) return (false);
-        gl.states[state] = false;
+        if (gl.states_flags[state] === 0) return (false);
+        gl.states_flags[state] = 0;
         pm1[0] = state;
         _super.apply(gl, pm1);
         return (true);
@@ -123,7 +123,7 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
     );
 
     this.shader_parameters = {
-      fws_num_lights: parameters.fws_num_lights || 1
+      fws_num_lights: parameters.lights_count_per_pass || 4
     };
 
     if (gl === null) {

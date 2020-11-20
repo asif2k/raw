@@ -3,6 +3,9 @@ var vec3 = raw.math.vec3, quat = raw.math.quat;
 function RD(a) {
   return a * raw.math.DEGTORAD;
 }
+function RND(n) {
+  return Math.random() * (n || 1);
+}
 function demo(params, cb) {
 
   var app = new raw.ecs({
@@ -79,11 +82,7 @@ function demo(params, cb) {
     components: {
       'transform': { position: [220, 220, 220] },
       'render_item': {
-        items: [new raw.shading.light({
-          cast_shadows: true,
-          shadow_map_size: 2048,
-          shadow_camera_distance: 20
-        })]
+        items: [new raw.shading.light()]
       },
       'transform_controller': { rotate: [RD(-125), RD(160), 0] }
     }
@@ -123,6 +122,21 @@ function demo(params, cb) {
     if (cb) cb(m);
     return m;
   };
+
+
+  app.create_render_item = function (tm, cb,trans) {
+    var m = app.create_entity({
+      components: {
+        'transform': trans || {},
+        'render_item': {
+          items: [tm]
+        }
+      }
+    });
+    if (cb) cb(m, m.render_item.items[0]);
+    return m;
+  };
+
 
   app.create_entity({
     components: {

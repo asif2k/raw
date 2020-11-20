@@ -36,11 +36,16 @@ however i use http-serve to test and run demos
 
 ## Demos
 
+Many lights
+https://asif2k.github.io/raw/demos/lights.html
+
 Lights ,shadows and transparent objects
 https://asif2k.github.io/raw/demos/demo1.html
 
 Large terrain with dyamic lod and mesh simplification
 https://asif2k.github.io/raw/demos/terrain.html
+
+
 
 ## Usage
 ```
