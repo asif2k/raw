@@ -11,35 +11,35 @@
 <body>
   <script>        
     demo({}, function (app, renderer, camera) {
-      
+      //
       var ter = app.create_entity({
         components: {
           'transform': {},
           'terrain': {
             wireframe: true,
             shaded:true,
-            region_size: 1024,
-            terrain_quality: 4,
-            quality_distance:3000,
-            draw_distance: 6000,
-            detail_levels: [1,2, 8, 12,16,22],
-            region_distance: 8,
+            region_size: 1024, // size of a single region in unit
+            world_size:4096, // size of whole world (no of regions)
+            terrain_quality: 4, // cannot be set during runtime, quality of terrain mesh(1-6) ,lower is better but cosume more memory and processing
+            detail_levels: [1, 4, 8, 12, 16,24], // level details at different distance
+            quality_distance: 2500, // distrubute lod in this distance            
+            draw_distance: 6000,// do not draw region after this distance            
+            region_distance: 4,// region to scan from camera
             regions_from_image_url: [
-              ["res/heightmap10.jpg", -6, -6, 0.25, 2048, 2048, 8]
+              // (-6,-6) position of regsion in world, (0.2) divide height from source 
+              // (1024, 1024) input image size 
+              // (16) scale terrain at runtime by this factor it must be power 2
+              ["res/heightmap10.jpg", -6, -6, 0.2, 1024, 1024, 16]
             ],
             material: {
+              // support 4 textures to blend from , it creates a single texture from these times
               texture_tiles: [
                 "res/dirt.jpg",
                 "res/grass.jpg",
                 "res/mud.jpg",
                 "res/stone.jpg"
-              ],
-              normal_tiles: [
-                "res/nm8.jpg",
-                "res/nm9.jpg",
-                "res/nm10.jpg",
-                "res/nm11.jpg"
-              ],
+              ],            
+              // extend shader and provide custome texturing , for example from a splat map
               shader:`
 vec4 mix_texture_tiles(vec4 tile1,vec4 tile2,vec4 tile3,vec4 tile4,vec3 normal){
 	return mix(tile1,mix(read_tile(u_texture_tiles_rw,4.0, 1.0,0.0), tile3,0.5),abs(normal.x));
@@ -47,10 +47,7 @@ vec4 mix_texture_tiles(vec4 tile1,vec4 tile2,vec4 tile3,vec4 tile4,vec3 normal){
 void fragment(void){
   super_fragment();
 }
-`
-
-
-            },
+`            },
             skybox: {
               sun_direction: app.default_light.transform_controller.fw_vector
             }
