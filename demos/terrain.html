@@ -20,9 +20,9 @@
             shaded:true,
             region_size: 1024,
             terrain_quality: 4,
-            quality_distance: 2000,
+            quality_distance:3000,
             draw_distance: 6000,
-            detail_levels: [1,4, 8, 12,16,22],
+            detail_levels: [1,2, 8, 12,16,22],
             region_distance: 8,
             regions_from_image_url: [
               ["res/heightmap10.jpg", -6, -6, 0.25, 2048, 2048, 8]
@@ -60,6 +60,12 @@ void fragment(void){
       });
       console.log(ter);     
 
+      app.default_light.render_item.items[0]
+        .set_intensity(2)
+        .set_diffuse(1, 1, 1)
+        .set_ambient(0.82, 0.82, 0.82);
+
+
       // update terrain system 15 times in one sec
       app.systems.terrain_system.step_size = 1/30;
       app.update_debug_canvas = function (ctx) {
@@ -90,12 +96,8 @@ void fragment(void){
 
 
 
-
-        if (camera.transform.require_update !== 0) {
-          if (camera.transform.position[1] < ter.terrain.height_on_camera + 50) {
-            camera.transform.position[1] = ter.terrain.height_on_camera + 50;
-          }
-        }
+        camera.transform.position[1] = Math.floor(ter.terrain.height_on_camera + 100);
+        
         app.tick_debug(delta);
         
 
