@@ -23,13 +23,18 @@
             terrain_quality: 4, // cannot be set during runtime, quality of terrain mesh(1-6) ,lower is better but cosume more memory and processing
             detail_levels: [1, 4, 8, 12, 16,24], // level details at different distance
             quality_distance: 2500, // distrubute lod in this distance            
-            draw_distance: 6000,// do not draw region after this distance            
-            region_distance: 4,// region to scan from camera
+            draw_distance: 8000,// do not draw region after this distance            
+            region_distance: 8,// region to scan from camera
             regions_from_image_url: [
-              // (-6,-6) position of regsion in world, (0.2) divide height from source 
-              // (1024, 1024) input image size 
-              // (16) scale terrain at runtime by this factor it must be power 2
-              ["res/heightmap10.jpg", -6, -6, 0.2, 1024, 1024, 16]
+                            
+              
+             
+              ["res/h14.png",
+                -8, -8,// position of regsion in world
+                0.28,//  divide height from source 
+                1024,1024,//  input image size 
+                16 //  scale terrain at runtime by this factor it must be power 2
+              ]
             ],
             material: {
               // support 4 textures to blend from , it creates a single texture from these times
@@ -64,36 +69,40 @@ void fragment(void){
 
 
       // update terrain system 15 times in one sec
-      app.systems.terrain_system.step_size = 1/30;
+      app.systems.terrain_system.step_size = 1/15;
       app.update_debug_canvas = function (ctx) {
         ctx.fillText('Terrain '+ ter.terrain.debug_text, 3, 500);
 
       };
 
-      var ca = 0;
-      app.begin_loop(function (delta) {
+      app.mouse_input.mouse_drage = function (dx, dy, e) {
+        camera.transform_controller.yaw_pitch(-dy * 0.005, -dx * 0.005);
 
-        camera.transform.position[0] = -Math.sin(ca * raw.math.DEGTORAD) * 4096;
-        camera.transform.position[2] = Math.cos(ca * raw.math.DEGTORAD) * 4096;
-        camera.transform_controller.move_front_back(
-          Math.cos(ca * raw.math.DEGTORAD) *
-          (Math.random()*1));
-        camera.transform_controller.yaw_pitch(0,
-           Math.sin(ca * raw.math.DEGTORAD) * 0.002);
-        camera.transform.require_update = 1;
+      };
+
+      var ca = 1, cs = 0.05;      
+      var a1 = RND(0.005);
+      var w1 = ter.terrain.region_size *6;
+      var w2 = ter.terrain.region_size * (RND(2) + 4);
+      app.begin_loop(function (delta) {
+        
+        camera.transform.position[0] = -Math.sin(ca * raw.math.DEGTORAD) * w1;
+        camera.transform.position[2] = Math.cos(ca * raw.math.DEGTORAD) * w2;
+        
+        camera.transform_controller.yaw_pitch(0, Math.cos(ca * raw.math.DEGTORAD) * a1);
 
         app.default_light.transform_controller.rotate_eular(
-          -Math.sin((ca % 180) * raw.math.DEGTORAD) *0.5
+          (-Math.sin((ca % 180) * raw.math.DEGTORAD) *0.55)
           , 160 * raw.math.DEGTORAD, 0);
-
-        ca += 0.025;
+          
+        
+        if (Math.round(ca) % 45===0) {        
+          a1 = RND(0.005)-0.0025;
+        }
+        ca += cs;
         ca = ca % 360;
 
-
-
-
-
-        camera.transform.position[1] = Math.floor(ter.terrain.height_on_camera + 100);
+        camera.transform.position[1] = Math.floor(ter.terrain.height_on_camera + 70);
         
         app.tick_debug(delta);
         
