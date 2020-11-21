@@ -10,7 +10,10 @@
 
 <body>
   <script>    
-    demo({ lights_count_per_pass:8  }, function (app, renderer, camera) {
+    demo({
+      lights_count_per_pass: 8,
+      pixel_ratio:1,
+    }, function (app, renderer, camera) {
      
            
 
@@ -31,7 +34,7 @@
       var i = 0;
 
 
-      var tex = raw.webgl.texture.from_url("res/tex4.jpg", true);
+      var tex = raw.webgl.texture.from_url("res/tex2.jpg", true);
       app.add_random_grid(100, 40, function (m) {        
         m.transform.position[1] = RND(80) -40;
         m.transform.position[2] = -95;
@@ -46,31 +49,35 @@
         .set_intensity(0.01).set_ambient(0.2, 0.2, 0.2);
 
 
-      var lights_num = 50;
+      var lights_num = 5;
 
       var lights = [];
-      for (i = 0; i < lights_num; i++) {
-        app.create_render_item(new raw.shading.point_light(), function (entity, light) {          
-          light.set_diffuse(RND(), RND(), RND()).set_intensity(25)
-            .set_attenuation_by_distance(25);
-          lights.push(entity);
-          entity.ca1 = RND(360);
-          entity.ca2 = RND(360);
-        });
+      function create_lights() {
+        for (i = 0; i < lights_num; i++) {
+          app.create_render_item(new raw.shading.point_light(), function (entity, light) {
+            light.set_diffuse(RND(), RND(), RND()).set_intensity(25)
+              .set_attenuation_by_distance(25);
+            lights.push(entity);
+            entity.ca1 = RND(360);
+            entity.ca2 = RND(360);
+          });
+        }
+        for (i = 0; i < lights_num; i++) {
+          app.create_render_item(new raw.shading.spot_light(), function (entity, light) {
+            light.set_diffuse(RND(), RND(), RND()).set_intensity(25)
+              .set_attenuation_by_distance(25);
+            lights.push(entity);
+            entity.ca1 = RND(360);
+            entity.ca2 = RND(360);
+          });
+        }
       }
-      for (i = 0; i < lights_num; i++) {
-        app.create_render_item(new raw.shading.spot_light(), function (entity, light) {          
-          light.set_diffuse(RND(), RND(), RND()).set_intensity(25)
-            .set_attenuation_by_distance(25);
-          lights.push(entity);
-          entity.ca1 = RND(360);
-          entity.ca2 = RND(360);
-        });
-      }
+
+      create_lights();
 
 
       app.update_debug_canvas = function (ctx) {
-        ctx.fillText((lights_num *2) + ' lights ' , 3, 500);
+        ctx.fillText(lights.length + ' lights ', 3, 500);
 
       };
       var ca = 0;
@@ -79,7 +86,7 @@
     
 
 
-      var caa = 0;
+      var caa = 0, check_timer = 0;
       function animate_lights() {
         lights.forEach(function (l) {
 
@@ -88,7 +95,7 @@
           l.transform.set_position(
             Math.sin(caa * raw.math.DEGTORAD) * 100,
             0,
-            (Math.cos(caa * raw.math.DEGTORAD) *20)-90
+            (Math.cos(caa * raw.math.DEGTORAD) *20)-80
           );
 
           
@@ -114,33 +121,18 @@
         });
         ca += 1;
         ca = ca % 360;
-        
+
+
+        if (Math.floor(app.fps_timer.current_timer - check_timer) > 3) {
+          check_timer = app.fps_timer.current_timer;          
+          if (app.fps_timer.fps > 57 && lights.length < 1000) {
+            create_lights();
+          }
+        }
       }
 
 
-      app.begin_loop(function (delta) {
-        
-        //camera.transform.position[0] = Math.sin(ca * raw.math.DEGTORAD) * 100;
-        //camera.transform.position[2] = Math.cos(ca * raw.math.DEGTORAD) * 100;
-        
-       
-        /*
-        sp1.transform.set_position(
-          Math.sin(ca * raw.math.DEGTORAD) * 100,
-          0,
-          Math.cos(ca * raw.math.DEGTORAD) * 100
-        );
-
-        sp1.transform.set_position(
-          ((sp1.transform.position[0] +
-          Math.sin(ca * raw.math.DEGTORAD) * 100)/200)*100,          
-          Math.cos(ca * raw.math.DEGTORAD) * 50,
-          sp1.transform.position[2] 
-        );
-
-        ca += 1;
-        ca = ca % 360;
-        */
+      app.begin_loop(function (delta) {       
 
         camera.transform_controller.yaw_pitch(0, Math.cos((ca) * raw.math.DEGTORAD) * 0.01);
         animate_lights();
