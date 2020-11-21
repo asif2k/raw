@@ -10,7 +10,7 @@ Extendable shader system
 Phong model material system
 Fast and dirty shadow mapping system
 Unlimited lights system using forward rendering
-Worker based large terrain system with dynamic level of details and mesh simplification
+Worker based large terrain system with dynamic level of details and mesh optimization
 Skeletal animation system with basic inverse kinematics using FABRIK
 ```
 
@@ -42,7 +42,7 @@ https://asif2k.github.io/raw/demos/lights.html
 Lights ,shadows and transparent objects
 https://asif2k.github.io/raw/demos/demo1.html
 
-Large terrain with dyamic lod and mesh simplification
+Large terrain with dyamic lod and mesh optimization 
 https://asif2k.github.io/raw/demos/terrain.html
 
 
