@@ -3205,22 +3205,19 @@ raw.ecs = raw.define(function (proto) {
       for (i = 0; i < this._systems.length; i++) {
         sys = this._systems[i];
         if (sys.enabled === true) {
-          sys.time_delta = this.timer - sys.last_step_time;
-          if (sys.time_delta > sys.step_size) {
-            sys.step_start();
-          }
-          
+          sys.step_start();
         }
       }
 
       for (i = 0; i < this._systems.length; i++) {
         sys = this._systems[i];
         if (sys.enabled === true) {
+          sys.time_delta = this.timer - sys.last_step_time;
           if (sys.time_delta > sys.step_size) {
             time_start = Date.now();
             sys.step();
             sys.frame_time = (Date.now() - time_start);
-            
+            sys.last_step_time = this.timer - (sys.time_delta % sys.step_size);
           }
         
         }
@@ -3229,48 +3226,6 @@ raw.ecs = raw.define(function (proto) {
       for (i = 0; i < this._systems.length; i++) {
         sys = this._systems[i];
         if (sys.enabled === true) {          
-          if (sys.time_delta > sys.step_size) {
-            sys.step_end();
-            sys.last_step_time = this.timer - (sys.time_delta % sys.step_size);
-          }
-        }
-      }
-
-
-
-    }
-  })();
-
-
-
-  proto.tick_debug = (function () {
-    var time_start = 0;
-    return function (time_delta) {
-      this.timer = performance.now() * 0.001;
-      this.time_delta = time_delta;
-      this.validate();
-
-      for (i = 0; i < this._systems.length; i++) {
-        sys = this._systems[i];
-        if (sys.enabled === true) {
-          sys.time_delta = this.time_delta;
-          sys.step_start();
-        }
-      }
-
-      for (i = 0; i < this._systems.length; i++) {
-        sys = this._systems[i];
-        if (sys.enabled === true) {
-          time_start = Date.now();
-          sys.step();
-          sys.frame_time = (Date.now() - time_start);
-
-        }
-      }
-
-      for (i = 0; i < this._systems.length; i++) {
-        sys = this._systems[i];
-        if (sys.enabled === true) {
           sys.step_end();
         }
       }
@@ -3279,8 +3234,6 @@ raw.ecs = raw.define(function (proto) {
 
     }
   })();
-
-
 
 
 
@@ -11695,26 +11648,34 @@ gl_FragColor = vec4(retColor, 1.0);
         }
       }
 
+      proto.query_height_on_camera = function () {
+        this.cam_reg_x = Math.floor((this.camera.world_position[0] / this.region_size) + 0.5);
+        this.cam_reg_z = Math.floor((this.camera.world_position[2] / this.region_size) + 0.5);
+
+        cam_reg_key = this.cam_reg_z * this.world_size + this.cam_reg_x;
+        this.cam_reg = this.regions[cam_reg_key];
+        if (this.cam_reg) {
+          this.worker.postMessage([1500, this.cam_reg.key, this.camera.world_position[0], this.camera.world_position[2]]);
+        }
+      }
+
       return function () {
         
 
         this.cam_reg_x = Math.floor((this.camera.world_position[0] / this.region_size) + 0.5);
         this.cam_reg_z = Math.floor((this.camera.world_position[2] / this.region_size) + 0.5);
 
-
-
-        
         cam_reg_key = this.cam_reg_z * this.world_size + this.cam_reg_x;
         this.cam_reg = this.regions[cam_reg_key];
+
+        /*
+        
+        
         if (this.cam_reg) {
           this.worker.postMessage([1500, this.cam_reg.key, this.camera.world_position[0], this.camera.world_position[2]]);
         }
+        */
 
-        if (this.timer - this.last_updated_time < 0.1) {
-          this.update_requested = true;
-          // return;
-
-        }
         this.update_requested = false;
         this.last_updated_time = this.timer;
         time_start = Date.now();
@@ -12000,6 +11961,7 @@ gl_FragColor = vec4(retColor, 1.0);
             terrain.camera = this.renderer.active_camera;
             if (terrain.camera.version !== terrain.camera_version) {
               terrain.update();
+              
               terrain.camera_version = terrain.camera.version;
               this.worked_items++;
             }
@@ -12008,6 +11970,20 @@ gl_FragColor = vec4(retColor, 1.0);
         }
 
         
+      }
+    };
+
+    proto.step_end = function () {      
+      while ((entity = this.ecs.iterate_entities("terrain")) !== null) {
+        terrain = entity.terrain;
+        if (this.renderer.active_camera !== null) {
+          terrain.camera = this.renderer.active_camera;
+          if (terrain.camera.version !== terrain.camera_version) {
+            terrain.query_height_on_camera();            
+          }
+        }
+
+
       }
     };
 
@@ -13316,9 +13292,9 @@ gl_FragColor = vec4((get_shadow_sample()*u_shadow_params_rw.x));
     })();
 
     var list = null, time_start=0;
-    proto.step_end = function () {
+    proto.step = function () {
 
-      time_start = Date.now();
+     // time_start = Date.now();
       this.worked_items = 0;
 
       
@@ -13332,7 +13308,7 @@ gl_FragColor = vec4((get_shadow_sample()*u_shadow_params_rw.x));
         this.render_pickables();
       }
 
-      this.frame_time = (Date.now() - time_start);
+     // this.frame_time = (Date.now() - time_start);
       
       
     };

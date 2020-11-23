@@ -74,12 +74,12 @@
       console.log(ter);
 
       // update terrain system 15 times in one sec
-      app.systems.terrain_system.step_size = 1 / 15;
+      app.systems.terrain_system.step_size = 1 / 10;
       app.update_debug_canvas = function (ctx) {
         ctx.fillText('Terrain ' + ter.terrain.debug_text, 3, 500);
       };
 
-      var ca = 1, cs = 0.035;
+      var ca = 1, cs = 0.03;
       var a1 = RND(0.005);
       var w1 = ter.terrain.region_size * 6;
       var w2 = ter.terrain.region_size * (RND(2) + 4);
@@ -103,7 +103,7 @@
 
         app.camera.transform.position[1] = Math.floor(ter.terrain.height_on_camera + 70);
 
-      }, 1 / 60);
+      }, 1 / 90);
     });
 
 

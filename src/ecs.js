@@ -134,22 +134,19 @@ raw.ecs = raw.define(function (proto) {
       for (i = 0; i < this._systems.length; i++) {
         sys = this._systems[i];
         if (sys.enabled === true) {
-          sys.time_delta = this.timer - sys.last_step_time;
-          if (sys.time_delta > sys.step_size) {
-            sys.step_start();
-          }
-          
+          sys.step_start();
         }
       }
 
       for (i = 0; i < this._systems.length; i++) {
         sys = this._systems[i];
         if (sys.enabled === true) {
+          sys.time_delta = this.timer - sys.last_step_time;
           if (sys.time_delta > sys.step_size) {
             time_start = Date.now();
             sys.step();
             sys.frame_time = (Date.now() - time_start);
-            
+            sys.last_step_time = this.timer - (sys.time_delta % sys.step_size);
           }
         
         }
@@ -158,48 +155,6 @@ raw.ecs = raw.define(function (proto) {
       for (i = 0; i < this._systems.length; i++) {
         sys = this._systems[i];
         if (sys.enabled === true) {          
-          if (sys.time_delta > sys.step_size) {
-            sys.step_end();
-            sys.last_step_time = this.timer - (sys.time_delta % sys.step_size);
-          }
-        }
-      }
-
-
-
-    }
-  })();
-
-
-
-  proto.tick_debug = (function () {
-    var time_start = 0;
-    return function (time_delta) {
-      this.timer = performance.now() * 0.001;
-      this.time_delta = time_delta;
-      this.validate();
-
-      for (i = 0; i < this._systems.length; i++) {
-        sys = this._systems[i];
-        if (sys.enabled === true) {
-          sys.time_delta = this.time_delta;
-          sys.step_start();
-        }
-      }
-
-      for (i = 0; i < this._systems.length; i++) {
-        sys = this._systems[i];
-        if (sys.enabled === true) {
-          time_start = Date.now();
-          sys.step();
-          sys.frame_time = (Date.now() - time_start);
-
-        }
-      }
-
-      for (i = 0; i < this._systems.length; i++) {
-        sys = this._systems[i];
-        if (sys.enabled === true) {
           sys.step_end();
         }
       }
@@ -208,8 +163,6 @@ raw.ecs = raw.define(function (proto) {
 
     }
   })();
-
-
 
 
 

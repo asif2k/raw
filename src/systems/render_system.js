@@ -1085,9 +1085,9 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
     })();
 
     var list = null, time_start=0;
-    proto.step_end = function () {
+    proto.step = function () {
 
-      time_start = Date.now();
+     // time_start = Date.now();
       this.worked_items = 0;
 
       
@@ -1101,7 +1101,7 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
         this.render_pickables();
       }
 
-      this.frame_time = (Date.now() - time_start);
+     // this.frame_time = (Date.now() - time_start);
       
       
     };
