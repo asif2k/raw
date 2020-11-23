@@ -14,6 +14,7 @@ import * from './systems/skeleton_system.js'
 import * from './systems/render_list_system.js'
 import * from './systems/terrain_system.js'
 import * from './systems/render_system.js'
+import * from './application.js'
 
 
 console.log(raw);

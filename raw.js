@@ -3075,14 +3075,11 @@ raw.ecs = raw.define(function (proto) {
     def = def || {};
     this.systems = {};
     this.components = {};
+    this._components = [];
     this._systems = [];
     this.entities = {};
     this.globals = {};
     this.memory_blocks = {};
-    this.def_components = def.components || [];
-    this.def_components.for_each(function (name_id, i, ecs) {
-     // ecs.use_component(name_id);
-    },this);
   }
 
   proto.create_memory_block = function (name_id, initial_size) {
@@ -3098,12 +3095,14 @@ raw.ecs = raw.define(function (proto) {
     var entity = { uuid: def.uuid || raw.guidi() };
     this.entities[entity.uuid] = entity;
     if (def.components) {
-      this.def_components.for_each(function (name_id, i, ecs) {
-        if (def.components[name_id]) {
-          
-          ecs.attach_component(entity, name_id, def.components[name_id]);
+      for (name_id in def.components) {
+        this.use_component(name_id);
+      }
+      this._components.for_each(function (comp, i, ecs) {
+        if (def.components[comp.name_id]) {
+          ecs.attach_component(entity, comp.name_id, def.components[comp.name_id]);
         }
-      },this);
+      }, this);  
     }
     return entity;
   };
@@ -3116,12 +3115,16 @@ raw.ecs = raw.define(function (proto) {
 
   proto.attach_component = function (e, name_id, def) {
     comp = this.use_component(name_id);
-    var ins = new comp.creator(comp);
-    ins.create(def, e, this);
+   
+    if (e[comp.name_id]) return e[comp.name_id];
+    var ins = new comp.creator(comp);    
+    ins.create(def , e, this);
+    comp = this.components[name_id];
     if (this.components[name_id].set_instance !== null) {
       this.components[name_id].set_instance(ins, ecs);
     }
     this.map_component_entity(e, this.components[name_id], ins);
+    return e[comp.name_id];
   };
 
   var comp, sys;
@@ -3129,6 +3132,7 @@ raw.ecs = raw.define(function (proto) {
     if (!this.components[name_id]) {
       comp = ecs.components[name_id];
       this.components[name_id] = {
+        priority: comp.priority,
         name_id: name_id, set_instance: null,
         creator: comp, ecs: this, entities: [], ei: 0
       };
@@ -3136,6 +3140,11 @@ raw.ecs = raw.define(function (proto) {
         this.components[name_id].parent = this.use_component(comp.super_class.name_id)
       }
       if (comp.validate) comp.validate(this.components[name_id]);
+      this._components.push(this.components[name_id]);
+      this._components = raw.merge_sort(this._components, this._components.length, function (a, b) {
+        return a.priority - b.priority;
+      });
+
       this.required_validation = true;
     }
     return this.components[name_id];
@@ -3276,7 +3285,7 @@ raw.ecs = raw.define(function (proto) {
 
 
 
-  ecs.components = {};
+  ecs.components = {};  
   ecs.systems = {};
   console.log('ecs.systems', ecs.systems);
   console.log('ecs.components', ecs.components);
@@ -3285,7 +3294,12 @@ raw.ecs = raw.define(function (proto) {
   ecs.register_component = function (name_id, comp) {
     comp.name_id = name_id;
     this.components[comp.name_id] = comp;
+    comp.priority = ecs.register_component.priority;
+    ecs.register_component.priority += 1000;
   };
+
+  ecs.register_component.priority = 1000;
+
 
   ecs.register_system = function (name_id, sys) {
     sys.name_id = name_id;
@@ -5342,7 +5356,7 @@ v_color_rw=a_color_rw;
 
 <?=chunk('precision')?>
 
-<?=chunk('fws-lighting')?>
+<?=chunk('global-render-system-lighting')?>
 
 varying vec2 v_uv_rw;
 varying vec4 v_position_rw;
@@ -5354,20 +5368,16 @@ uniform sampler2D u_texture_rw;
 uniform vec4 u_eye_position_rw;
 
 void fragment(void) {
-vec3 fws_direction_to_eye = normalize(u_eye_position_rw.xyz - v_position_rw.xyz);
 
-fws_total_light=fws_lighting_calc(u_object_material_rw,v_position_rw.xyz,
-normalize(v_normal_rw),fws_direction_to_eye);
+vec3 total_light=get_render_system_lighting(
+u_object_material_rw,
+v_position_rw.xyz,
+normalize(v_normal_rw),
+normalize(u_eye_position_rw.xyz - v_position_rw.xyz));
 
-gl_FragColor = vec4(fws_total_light, u_object_material_rw[0].w)* 
+gl_FragColor = vec4(total_light, u_object_material_rw[0].w)* 
 texture2D(u_texture_rw, v_uv_rw)* v_color_rw;
 gl_FragColor.w*=u_object_material_rw[0].w;
-
-
-
-
-
-
 
 }`);
 
@@ -7036,7 +7046,7 @@ raw.ecs.register_component("camera", raw.define(function (proto, _super) {
       this.type = def.type || "perspective";
       if (this.type === "perspective") {
         this.fov = (def.fov !== undefined ? def.fov : 60) * 0.017453292519943295;
-        this.near = def.near !== undefined ? near : 0.1;
+        this.near = def.near !== undefined ? def.near : 0.1;
         this.far = def.far !== undefined ? def.far : 2000;
         this.aspect = def.aspect !== undefined ? def.aspect : 1;
       }
@@ -9405,7 +9415,7 @@ raw.ecs.register_component("render_list", raw.define(function (proto, _super) {
   proto.create = (function (_super) {
     return function (def, entity) {
       _super.apply(this, [def, entity]);
-      this.camera_version = -100;
+      this.camera_version = -14300;
       this.entity = entity;
       this.camera = def.camera || null;
       this.layer = (Math.pow(2, def.layer)) || 2;
@@ -9576,8 +9586,7 @@ raw.ecs.register_system("render_item_system", raw.define(function (proto, _super
 
 
 (function () {
-  var glsl = raw.webgl.shader.create_chunks_lib(`
-/*chunk-flat-material*/
+  var glsl = raw.webgl.shader.create_chunks_lib(`/*chunk-default-material*/
 
 <?=chunk('precision')?>
 attribute vec3 a_position_rw;
@@ -9630,7 +9639,10 @@ varying vec3 v_normal_rw;
 varying vec2 v_uv_rw;
 varying mat3 v_tbn_matrix;
 
-<?=chunk('fws-lighting')?>
+<?=chunk('global-render-system-lighting')?>
+
+<?=chunk('global-render-system-fog-effect')?>
+
 
 uniform vec3 land_color;
 
@@ -9699,7 +9711,7 @@ return result / NUM_SAMPLES_SQUARED;
 }
 
 
-<?=chunk('global-fog-effect')?>
+
 
 void fragment(void) {
 
@@ -9723,16 +9735,14 @@ vec3 normal=(norm1*v_normal_rw.x)+(norm4*v_normal_rw.x)+(norm3*v_normal_rw.z);
 normal=normalize(v_normal_rw+normal);
 
  vec3 fws_direction_to_eye = normalize(u_eye_position_rw.xyz - v_position_rw.xyz);
-fws_total_light=fws_lighting_calc(u_object_material_rw,v_position_rw.xyz,
+vec3 total_light=get_render_system_lighting(u_object_material_rw,v_position_rw.xyz,
 normal,
 fws_direction_to_eye);
 
 
 
 
-gl_FragColor = vec4((fws_total_light
-
-)*land_color, u_object_material_rw[0].w)*
+gl_FragColor = vec4((total_light)*land_color, u_object_material_rw[0].w)*
 mix_texture_tiles(tile1,tile2,tile3,tile4,normal);
 //gl_FragColor.w*=u_object_material_rw[0].w;
 gl_FragColor=mix_fog_color(gl_FragColor);
@@ -9820,7 +9830,7 @@ vec3 Uncharted2Tonemap(vec3 x) {
   return ((x*(A*x+C*B)+D*E)/(x*(A*x+B)+D*F))-E/F;
 }
 
-<?=chunk('global-fog-effect')?>
+<?=chunk('global-render-system-fog-effect')?>
 
 void fragment(void) {
 
@@ -10021,182 +10031,102 @@ gl_FragColor = vec4(retColor, 1.0);
 }`);
 
 
-  var terrain_material = raw.define(function (proto, _super) {
+ 
 
-    proto.render_mesh = function (renderer, shader, mesh) {
+  raw.ecs.register_component("terrain", raw.define(function (proto, _super) {
+    var terrain_material = raw.define(function (proto, _super) {
 
-      this.depth_and_cull(renderer);
-
-      shader.set_uniform("u_object_material_rw", this.object_material);
-
-      shader.set_uniform("u_tile_size_rw", this.tile_size);
-      shader.set_uniform("u_texture_repeat_rw", this.texture_repeat);
-      shader.set_uniform("u_normalmap_repeat_rw", this.normalmap_repeat);
-
-      renderer.use_texture(this.texture_tiles, 0);
-      renderer.use_texture(this.normalmap_tiles, 1);
-
-
-      shader.set_uniform("u_normalmap_tiles_rw", 1);
-      
-     
-
-
-      this.terrain.render_terrain(renderer, shader);
-    };
-
-    function terrain_material(def) {
-      def = def || {};
-      _super.apply(this, [def]);
-      this.terrain = def.terrain;
-      raw.math.vec3.set(this.ambient, 0.5, 0.5, 0.5);
-      raw.math.vec3.set(this.specular, 0, 0, 0);
-
-      this.texture_tiles = null;
-      this.normalmap_tiles = null;
-
-      this.tile_size = raw.math.vec2(512, 0);
-      this.texture_repeat = raw.math.vec4(4, 4,4, 4);
-      this.normalmap_repeat = raw.math.vec4(8, 8, 8,8);
-
-
-
-      this.shader = terrain_material.shader;
-      if (def.material) {
-
-        if (def.material.normalmap_tiles) {
-          this.normalmap_tiles = raw.webgl.texture.create_tiled_texture(def.material.normalmap_tiles,
-            def.material.tile_size || 512,
-            def.material.texture_size || 1024,
-            def.material.texture_size || 1024
-          );
-
-          this.tile_size[0] = this.normalmap_tiles.tile_sizef;
-          this.tile_size[1] = this.normalmap_tiles.tile_offsetf;
-
-        }
-
-        if (def.material.texture_tiles) {
-          this.texture_tiles = raw.webgl.texture.create_tiled_texture(def.material.texture_tiles,
-            def.material.tile_size || 512,
-            def.material.texture_size || 1024,
-            def.material.texture_size || 1024
-          );
-
-          this.tile_size[0] = this.texture_tiles.tile_sizef;
-          this.tile_size[1] = this.texture_tiles.tile_offsetf;
-
-        }
-
-       
-
-        if (def.material.shader) {
-          this.shader = this.shader.extend(def.material.shader);
-        }
-      }
-
-
-      
-    }
-    terrain_material.shader = raw.webgl.shader.parse(glsl["flat-material"]);
-
-
-    return terrain_material;
-
-
-  }, raw.shading.shaded_material);
-
-
-  var create_skybox = (function () {
-    var skybox_material = raw.define(function (proto, _super) {
-
-      var view_direction_projection_matrix =raw.math.mat4();
-      var view_direction_projection_inverse_matrix = raw.math.mat4();
-
-      var sun_params = raw.math.vec4();
-      var tmat = raw.math.mat4();
       proto.render_mesh = function (renderer, shader, mesh) {
 
         this.depth_and_cull(renderer);
 
-        raw.math.mat4.copy(tmat, renderer.active_camera.view_inverse);
-        if (mesh.skybox_camera_version !== renderer.active_camera.version) {
-          tmat[12] = 0; tmat[13] = 0; tmat[14] = 0;
+        shader.set_uniform("u_object_material_rw", this.object_material);
 
-          raw.math.mat4.multiply(view_direction_projection_matrix,
-            renderer.active_camera.projection,
-            tmat
-          );
+        shader.set_uniform("u_tile_size_rw", this.tile_size);
+        shader.set_uniform("u_texture_repeat_rw", this.texture_repeat);
+        shader.set_uniform("u_normalmap_repeat_rw", this.normalmap_repeat);
 
-          raw.math.mat4.inverse(view_direction_projection_inverse_matrix, view_direction_projection_matrix);
+        renderer.use_texture(this.texture_tiles, 0);
+        renderer.use_texture(this.normalmap_tiles, 1);
 
-         
-          mesh.skybox_camera_version = renderer.active_camera.version;
+
+        shader.set_uniform("u_normalmap_tiles_rw", 1);
+
+
+
+
+        this.terrain.render_terrain(renderer, shader);
+      };
+
+      function terrain_material(def) {
+        def = def || {};
+        _super.apply(this, [def]);
+        this.terrain = def.terrain;
+        raw.math.vec3.set(this.ambient, 0.5, 0.5, 0.5);
+        raw.math.vec3.set(this.specular, 0, 0, 0);
+
+        this.texture_tiles = null;
+        this.normalmap_tiles = null;
+
+        this.tile_size = raw.math.vec2(512, 0);
+        this.texture_repeat = raw.math.vec4(4, 4, 4, 4);
+        this.normalmap_repeat = raw.math.vec4(8, 8, 8, 8);
+
+
+
+        this.shader = terrain_material.shader;
+        if (def.material) {
+
+          if (def.material.normalmap_tiles) {
+            this.normalmap_tiles = raw.webgl.texture.create_tiled_texture(def.material.normalmap_tiles,
+              def.material.tile_size || 512,
+              def.material.texture_size || 1024,
+              def.material.texture_size || 1024
+            );
+
+            this.tile_size[0] = this.normalmap_tiles.tile_sizef;
+            this.tile_size[1] = this.normalmap_tiles.tile_offsetf;
+
+          }
+
+          if (def.material.texture_tiles) {
+            this.texture_tiles = raw.webgl.texture.create_tiled_texture(def.material.texture_tiles,
+              def.material.tile_size || 512,
+              def.material.texture_size || 1024,
+              def.material.texture_size || 1024
+            );
+
+            this.tile_size[0] = this.texture_tiles.tile_sizef;
+            this.tile_size[1] = this.texture_tiles.tile_offsetf;
+
+          }
+
+
+
+          if (def.material.shader) {
+            this.shader = this.shader.extend(def.material.shader);
+          }
         }
 
 
-        
-
-
-        sun_params[0] = this.sun_direction[0];
-        sun_params[1] = this.sun_direction[1];
-        sun_params[2] = this.sun_direction[2];
-        sun_params[3] = this.sun_angular_diameter_cos;
-
-        shader.set_uniform("u_view_projection_matrix_rw", view_direction_projection_inverse_matrix);
-        shader.set_uniform("u_sun_params_rw", sun_params);
-        renderer.gl.depthFunc(515);        
-        renderer.gl.drawArrays(4, 0, mesh.geometry.num_items);
-        renderer.gl.depthFunc(513);
-
-
-
-      };
-
-      function skybox_material(def) {
-        def = def || {};
-        _super.apply(this, [def]);   
-        this.shader = skybox_material.shader;
-
-        this.sun_direction = def.sun_direction || [0.0, 1.0, 0.0];
-        this.sun_angular_diameter_cos = 0.99991;
 
       }
-      skybox_material.shader = raw.webgl.shader.parse(glsl["skybox"]);
+      terrain_material.shader = raw.webgl.shader.parse(glsl["default-material"]);
 
 
-      return skybox_material;
+      return terrain_material;
 
 
-    }, raw.shading.material);
+    }, raw.shading.shaded_material);
 
-
-    return function (def) {
-      return new raw.rendering.mesh({
-        flags: 1,
-        geometry: raw.geometry.create({
-          vertices: new Float32Array([
-            -1, -1,
-            1, -1,
-            -1, 1,
-            -1, 1,
-            1, -1,
-            1, 1,
-          ]), vertex_size: 2
-        }),
-        material: new skybox_material(def)
-      })
-
-    }
-
-  })();
-
-  raw.ecs.register_component("terrain", raw.define(function (proto, _super) {
-
-    var time_start = 0, reg, reg_x, reg_z, reg_key, i = 0;
+    var time_start = 0, reg, reg_x, reg_z, reg_key, i = 0,render_item=null;
     proto.create = (function (_super_call) {
-      return function (def, entity) {        
+      return function (def, entity,ecs) {        
         _super_call.apply(this, [def, entity]);
+
+        render_item = ecs.attach_component(entity, 'render_item', {});
+
+
         this.camera_version =986732;
         this.region_size = def.region_size || 512;
         this.world_size = def.world_size || (4096 * 2);
@@ -10206,7 +10136,7 @@ gl_FragColor = vec4(retColor, 1.0);
 
         
         
-        this.items.push(new raw.rendering.mesh({
+        render_item.items.push(new raw.rendering.mesh({
           flags: 1,
           geometry: raw.geometry.create({vertices: new Float32Array(0) }),
           material: new terrain_material({
@@ -10215,12 +10145,6 @@ gl_FragColor = vec4(retColor, 1.0);
           })
         }));
         
-
-        if (def.skybox) {
-          this.items.push(create_skybox(def.skybox));
-        }
-
-
         this.regions = {};
         this.objects = {};
         this.regions_to_render = [];
@@ -11561,7 +11485,7 @@ gl_FragColor = vec4(retColor, 1.0);
 
     };
 
-    proto.update_terrain = (function () {
+    proto.update = (function () {
 
 
       proto.validate_regions = (function () {
@@ -11818,6 +11742,8 @@ gl_FragColor = vec4(retColor, 1.0);
           ' parking ' + this.parking_length +
           ' / tri count ' + this.tri_count
         );
+
+
       }
 
 
@@ -11885,10 +11811,8 @@ gl_FragColor = vec4(retColor, 1.0);
 
 
             if (this.shaded) {            
-            //renderer.use_texture(this.shadow_map, 1);
-             
-              raw.math.vec3.set(land_color, 1, 1, 1);
-              shader.set_uniform('land_color', land_color);
+            //renderer.use_texture(this.shadow_map, 1);             
+              shader.set_uniform('land_color', raw.math.vec3.set(land_color, 1, 1, 1));
               renderer.gl.drawArrays(4, _ds, _di);
             }
 
@@ -11914,13 +11838,13 @@ gl_FragColor = vec4(retColor, 1.0);
             shader.set_uniform('reg_pos', reg_pos);
             this.tri_count += _di;
             if (this.wireframe) {
-              shader.set_uniform('land_color',raw.math.vec3.set(land_color, 0.5, 0.5, 0.5));
+              shader.set_uniform('terrain_color',raw.math.vec3.set(terrain_color, 0.5, 0.5, 0.5));
               renderer.gl.drawElements(1, _di * 2, 5125, (_ds * 2) * 4);
             }
 
 
             if (this.shaded) {
-              shader.set_uniform('land_color',raw.math.vec3.set(land_color, 0, 0, 0));
+              shader.set_uniform('terrain_color',raw.math.vec3.set(terrain_color, 0, 0, 0));
               renderer.gl.drawArrays(4, _ds, _di);
             }
 
@@ -11954,7 +11878,109 @@ gl_FragColor = vec4(retColor, 1.0);
 
     return terrain;
 
-  }, raw.ecs.components["render_item"]));
+  }, raw.ecs.component));
+
+  raw.ecs.register_component("skybox", raw.define(function (proto, _super) {
+    var skybox_material = raw.define(function (proto, _super) {
+
+      var view_direction_projection_matrix = raw.math.mat4();
+      var view_direction_projection_inverse_matrix = raw.math.mat4();
+
+      var sun_params = raw.math.vec4();
+      var tmat = raw.math.mat4();
+      proto.render_mesh = function (renderer, shader, mesh) {
+
+        this.depth_and_cull(renderer);
+
+        raw.math.mat4.copy(tmat, renderer.active_camera.view_inverse);
+        if (mesh.skybox_camera_version !== renderer.active_camera.version) {
+          tmat[12] = 0; tmat[13] = 0; tmat[14] = 0;
+
+          raw.math.mat4.multiply(view_direction_projection_matrix,
+            renderer.active_camera.projection,
+            tmat
+          );
+
+          raw.math.mat4.inverse(view_direction_projection_inverse_matrix, view_direction_projection_matrix);
+
+
+          mesh.skybox_camera_version = renderer.active_camera.version;
+        }
+
+
+
+
+
+        sun_params[0] = this.sun_direction[0];
+        sun_params[1] = this.sun_direction[1];
+        sun_params[2] = this.sun_direction[2];
+        sun_params[3] = this.sun_angular_diameter_cos;
+
+        shader.set_uniform("u_view_projection_matrix_rw", view_direction_projection_inverse_matrix);
+        shader.set_uniform("u_sun_params_rw", sun_params);
+        renderer.gl.depthFunc(515);
+        renderer.gl.drawArrays(4, 0, mesh.geometry.num_items);
+        renderer.gl.depthFunc(513);
+
+
+
+      };
+
+      function skybox_material(def) {
+        def = def || {};
+        _super.apply(this, [def]);
+        this.shader = skybox_material.shader;
+
+       
+        this.sun_direction = def.sun_direction || [0.0, 1.0, 0.0];
+        this.sun_angular_diameter_cos = 0.99991;
+
+      }
+      skybox_material.shader = raw.webgl.shader.parse(glsl["skybox"]);
+
+
+      return skybox_material;
+
+
+    }, raw.shading.material);
+
+    var render_item = null;
+
+    proto.create = (function (_super) {
+      return function (def, entity,ecs) {
+        _super.apply(this, [def, entity]);
+        render_item = ecs.attach_component(entity, 'render_item', {});
+
+        render_item.items.push(new raw.rendering.mesh({
+          flags: 1,
+          geometry: raw.geometry.create({
+            vertices: new Float32Array([
+              -1, -1,
+              1, -1,
+              -1, 1,
+              -1, 1,
+              1, -1,
+              1, 1,
+            ]), vertex_size: 2
+          }),
+          material: new skybox_material(def)
+        }))
+      }
+    })(proto.create);
+
+
+    function sky_box(component) {
+      _super.apply(this);
+
+    }
+
+
+
+    return sky_box;
+
+  }, raw.ecs.component));
+
+
 
 
 
@@ -11973,7 +11999,7 @@ gl_FragColor = vec4(retColor, 1.0);
           if (this.renderer.active_camera !== null) {
             terrain.camera = this.renderer.active_camera;
             if (terrain.camera.version !== terrain.camera_version) {
-              terrain.update_terrain();
+              terrain.update();
               terrain.camera_version = terrain.camera.version;
               this.worked_items++;
             }
@@ -12011,8 +12037,95 @@ gl_FragColor = vec4(retColor, 1.0);
 
 raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
 
-  var glsl = raw.webgl.shader.create_chunks_lib(`
-/*chunk-global-fog-effect*/
+  var glsl = raw.webgl.shader.create_chunks_lib(`/*chunk-global-render-system-lighting*/
+
+<?for(var i= 0;i<param('fws_num_lights');i++) {?>
+uniform mat4 u_light_material_rw<?=i?>;
+uniform mat4 u_light_matrix_rw<?=i?>;
+<?}?>
+
+
+
+
+
+float fws_distance_to_light;
+float fws_lambertian;
+float fws_specular;
+float fws_attenuation;
+float fws_intensity;
+float fws_spot_light_calc;
+float fws_spot_theta;
+float fws_spot_light_status;
+
+vec3 fws_total_light;
+vec3 fws_light_value;
+
+vec3 fws_lighting(mat4 fws_object_material, mat4 fws_light_material,
+vec3 fws_vertex_position, vec3 fws_vertex_normal,
+vec3 fws_direction_to_eye,vec3 fws_direction_to_light, vec3 fws_direction_from_light) {
+
+fws_distance_to_light = length(fws_direction_to_light);
+
+
+
+fws_direction_to_light = normalize(fws_direction_to_light);
+fws_lambertian = max(dot(fws_direction_to_light, fws_vertex_normal), 0.0);
+
+
+fws_lambertian =dot(fws_direction_to_light, fws_vertex_normal);
+
+fws_intensity = fws_light_material[0].w;
+
+fws_attenuation = (fws_light_material[3].x + fws_light_material[3].y * fws_distance_to_light
++ fws_light_material[3].z * (fws_distance_to_light * fws_distance_to_light)) + fws_light_material[3].w;
+
+fws_spot_light_status = step(0.000001, fws_light_material[1].w);
+fws_spot_theta = dot(fws_direction_to_light, fws_direction_from_light);
+fws_spot_light_calc = clamp((fws_spot_theta - fws_light_material[2].w) / (fws_light_material[1].w - fws_light_material[2].w), 0.0, 1.0);
+fws_intensity *= (fws_spot_light_status * (step(fws_light_material[1].w, fws_spot_theta) * fws_spot_light_calc))
++ abs(1.0 - fws_spot_light_status);
+
+
+fws_specular = pow(max(dot(normalize(fws_direction_to_light.xyz + fws_direction_to_eye), fws_vertex_normal), 0.0), fws_object_material[2].w) * fws_lambertian;
+fws_specular *= fws_intensity * step(0.0, fws_lambertian);
+
+
+
+
+fws_light_value = (fws_light_material[0].xyz * fws_object_material[0].xyz) +
+(fws_object_material[1].xyz * fws_lambertian * fws_light_material[1].xyz * fws_intensity) +
+(fws_object_material[2].xyz * fws_specular * fws_light_material[2].xyz);
+
+fws_light_value=max(fws_light_value,0.0);
+
+
+
+return (fws_light_value / fws_attenuation);
+
+
+}
+
+
+vec3 get_render_system_lighting(mat4 object_material_rw,vec3 fws_vertex,vec3 fws_normal,vec3 fws_direction_to_eye){
+
+fws_total_light=vec3(0.0);
+<?for (var i = 0;i < param('fws_num_lights');i++) {?>
+fws_total_light += fws_lighting(
+object_material_rw,
+u_light_material_rw<?=i?>,
+fws_vertex, fws_normal, fws_direction_to_eye,
+u_light_matrix_rw<?=i?>[3].xyz - fws_vertex,
+u_light_matrix_rw<?=i?>[2].xyz);
+<?}?>
+
+return fws_total_light;
+}
+
+
+
+
+/*chunk-global-render-system-fog-effect*/
+
 uniform vec3 u_fog_params_rw;
 uniform vec4 u_fog_color_rw;
 float get_linear_fog_factor(float eye_dist)
@@ -13100,9 +13213,9 @@ gl_FragColor = vec4((get_shadow_sample()*u_shadow_params_rw.x));
 
 
         if (light.light_type === 0) {
-          u_light_pos_rw[0] = light.matrix_world[8] * 9999;
-          u_light_pos_rw[1] = light.matrix_world[9] * 9999;
-          u_light_pos_rw[2] = light.matrix_world[10] * 9999;
+          u_light_pos_rw[0] = light.matrix_world[8] * 99999;
+          u_light_pos_rw[1] = light.matrix_world[9] * 99999;            
+          u_light_pos_rw[2] = light.matrix_world[10] * 99999;
         }
 
 
@@ -13366,6 +13479,9 @@ gl_FragColor = vec4((get_shadow_sample()*u_shadow_params_rw.x));
 
   };
 
+  proto.get_element = function () {
+    return this.gl.canvas;
+  };
 
 
 
@@ -13374,7 +13490,108 @@ gl_FragColor = vec4((get_shadow_sample()*u_shadow_params_rw.x));
 
 }, raw.ecs.system));
 
+/*src/application.js*/
+
+﻿raw.application = {};
+raw.application['3d'] = raw.define(function (proto, _super) {
+
+  proto.run_debug = function (cb,step_size) {
+    var last_fps_display_time = 0, app = this, i = 0;
+    setTimeout(function () {
+      app.camera.transform.require_update = 1;
+    }, 100);
+    var ctx = app.renderer.debug_canvas ? app.renderer.debug_canvas.ctx : undefined;
+    app.fps_timer.loop(function (delta) {
+
+      app.timer = app.fps_timer.current_timer;
+      cb(delta);
+      app.tick_debug(delta);
+      if (app.fps_timer.current_timer - last_fps_display_time > 0.25) {
+        last_fps_display_time = app.fps_timer.current_timer;
+        if (ctx) {
+          ctx.fillStyle = "rgba(0, 0, 0, 0)";
+          ctx.clearRect(0, 0, app.renderer.debug_canvas.width, app.renderer.debug_canvas.height);          
+          ctx.fillStyle = "#fff";
+          ctx.font = "12px arial";
+          ctx.fillText(app.fps_timer.fps + ' fps', 1, 10);
+          for (i = 0; i < app._systems.length; i++) {
+            sys = app._systems[i];
+            ctx.fillText(
+              sys.name_id + ' ' + sys.frame_time + ' ms /' + sys.worked_items
+              , 1, (i * 20) + 30);
+          }
+
+          app.update_debug_canvas(ctx);
+          app.renderer.update_debug_canvas();
+        }
+      }
+
+
+
+
+    }, step_size);
+  }
+
+  proto.create_render_item = function (item, cb) {
+    var m = this.create_entity({
+      components: {
+        'transform':  {},
+        'render_item': {
+          items: [item]
+        }
+      }
+    });
+    if (cb) cb(m, item);
+    return m;
+  };
+
+  
+  proto.update_debug_canvas = function () {
+
+  };
+
+  function _3d(def) {
+    def = def || {};
+    _super.apply(this, [def]);
+    def.renderer = def.renderer || {};
+    this.renderer = this.use_system('render_system',
+      raw.merge_object(def.renderer, {
+        show_debug_canvas: true
+      }, true));
+
+    def.camera = def.camera || {};
+
+    this.camera = this.create_entity({
+      components: {
+        'transform': def.camera.transform || {},
+        'camera': raw.merge_object(def.camera, {
+          type: 'perspective',
+          far: 5000,
+          near:0.1
+        }, true) ,
+        'transform_controller': def.camera.transform_controller || {}
+      }
+    });
+   
+
+    this.fps_timer = new raw.fps_timer();
+    this.render_list = this.create_entity({
+      components: {
+        'render_list': {
+          camera: this.camera,
+          layer: 1
+        },
+      }
+    });
+
+  }
+
+  return _3d;
+}, raw.ecs);
+
+
 /*src/main.js*/
+
 
 
 

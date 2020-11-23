@@ -88,7 +88,7 @@ void vertex(){
 
 <?=chunk('precision')?>
 
-<?=chunk('fws-lighting')?>
+<?=chunk('global-render-system-lighting')?>
 
 varying vec2 v_uv_rw;
 varying vec4 v_position_rw;
@@ -100,19 +100,15 @@ uniform sampler2D u_texture_rw;
 uniform vec4 u_eye_position_rw;
 
 void fragment(void) {
-	vec3 fws_direction_to_eye = normalize(u_eye_position_rw.xyz - v_position_rw.xyz);	
 	
-	fws_total_light=fws_lighting_calc(u_object_material_rw,v_position_rw.xyz,
-	normalize(v_normal_rw),fws_direction_to_eye);
+	vec3 total_light=get_render_system_lighting(
+	u_object_material_rw,
+	v_position_rw.xyz,
+	normalize(v_normal_rw),
+	normalize(u_eye_position_rw.xyz - v_position_rw.xyz));
 	
-	gl_FragColor = vec4(fws_total_light, u_object_material_rw[0].w)* 
+	gl_FragColor = vec4(total_light, u_object_material_rw[0].w)* 
 	texture2D(u_texture_rw, v_uv_rw)* v_color_rw;	
 	gl_FragColor.w*=u_object_material_rw[0].w;
 	
-
-
-
-	
-
-
 }

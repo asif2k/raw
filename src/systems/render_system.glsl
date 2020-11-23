@@ -1,5 +1,92 @@
-﻿
-/*chunk-global-fog-effect*/
+﻿/*chunk-global-render-system-lighting*/
+
+<?for(var i= 0;i<param('fws_num_lights');i++) {?>
+	uniform mat4 u_light_material_rw<?=i?>;
+	uniform mat4 u_light_matrix_rw<?=i?>;
+<?}?>
+
+
+
+
+
+float fws_distance_to_light;
+float fws_lambertian;
+float fws_specular;
+float fws_attenuation;
+float fws_intensity;
+float fws_spot_light_calc;
+float fws_spot_theta;
+float fws_spot_light_status;
+
+vec3 fws_total_light;
+vec3 fws_light_value;
+
+vec3 fws_lighting(mat4 fws_object_material, mat4 fws_light_material,
+	vec3 fws_vertex_position, vec3 fws_vertex_normal,
+	vec3 fws_direction_to_eye,vec3 fws_direction_to_light, vec3 fws_direction_from_light) {
+
+	fws_distance_to_light = length(fws_direction_to_light);
+
+	
+
+	fws_direction_to_light = normalize(fws_direction_to_light);
+	fws_lambertian = max(dot(fws_direction_to_light, fws_vertex_normal), 0.0);
+
+
+	fws_lambertian =dot(fws_direction_to_light, fws_vertex_normal);
+
+	fws_intensity = fws_light_material[0].w;
+	
+	fws_attenuation = (fws_light_material[3].x + fws_light_material[3].y * fws_distance_to_light
+		+ fws_light_material[3].z * (fws_distance_to_light * fws_distance_to_light)) + fws_light_material[3].w;
+
+	fws_spot_light_status = step(0.000001, fws_light_material[1].w);
+	fws_spot_theta = dot(fws_direction_to_light, fws_direction_from_light);
+	fws_spot_light_calc = clamp((fws_spot_theta - fws_light_material[2].w) / (fws_light_material[1].w - fws_light_material[2].w), 0.0, 1.0);
+	fws_intensity *= (fws_spot_light_status * (step(fws_light_material[1].w, fws_spot_theta) * fws_spot_light_calc))
+		+ abs(1.0 - fws_spot_light_status);
+
+	
+	fws_specular = pow(max(dot(normalize(fws_direction_to_light.xyz + fws_direction_to_eye), fws_vertex_normal), 0.0), fws_object_material[2].w) * fws_lambertian;
+	fws_specular *= fws_intensity * step(0.0, fws_lambertian);
+	
+	
+
+
+	fws_light_value = (fws_light_material[0].xyz * fws_object_material[0].xyz) +
+		(fws_object_material[1].xyz * fws_lambertian * fws_light_material[1].xyz * fws_intensity) +
+		(fws_object_material[2].xyz * fws_specular * fws_light_material[2].xyz);
+
+		fws_light_value=max(fws_light_value,0.0);
+
+
+		
+	return (fws_light_value / fws_attenuation);
+
+
+}
+
+
+vec3 get_render_system_lighting(mat4 object_material_rw,vec3 fws_vertex,vec3 fws_normal,vec3 fws_direction_to_eye){
+
+	fws_total_light=vec3(0.0);
+	<?for (var i = 0;i < param('fws_num_lights');i++) {?>
+			fws_total_light += fws_lighting(
+				object_material_rw,
+				u_light_material_rw<?=i?>,
+				fws_vertex, fws_normal, fws_direction_to_eye,
+				u_light_matrix_rw<?=i?>[3].xyz - fws_vertex,
+				u_light_matrix_rw<?=i?>[2].xyz);
+	<?}?>
+
+	return fws_total_light;
+}
+
+
+
+
+/*chunk-global-render-system-fog-effect*/
+
 uniform vec3 u_fog_params_rw;
 uniform vec4 u_fog_color_rw;
 float get_linear_fog_factor(float eye_dist)

@@ -3,182 +3,102 @@
   var glsl = raw.webgl.shader.create_chunks_lib(import('systems/terrain_system.glsl'));
 
 
-  var terrain_material = raw.define(function (proto, _super) {
+ 
 
-    proto.render_mesh = function (renderer, shader, mesh) {
+  raw.ecs.register_component("terrain", raw.define(function (proto, _super) {
+    var terrain_material = raw.define(function (proto, _super) {
 
-      this.depth_and_cull(renderer);
-
-      shader.set_uniform("u_object_material_rw", this.object_material);
-
-      shader.set_uniform("u_tile_size_rw", this.tile_size);
-      shader.set_uniform("u_texture_repeat_rw", this.texture_repeat);
-      shader.set_uniform("u_normalmap_repeat_rw", this.normalmap_repeat);
-
-      renderer.use_texture(this.texture_tiles, 0);
-      renderer.use_texture(this.normalmap_tiles, 1);
-
-
-      shader.set_uniform("u_normalmap_tiles_rw", 1);
-      
-     
-
-
-      this.terrain.render_terrain(renderer, shader);
-    };
-
-    function terrain_material(def) {
-      def = def || {};
-      _super.apply(this, [def]);
-      this.terrain = def.terrain;
-      raw.math.vec3.set(this.ambient, 0.5, 0.5, 0.5);
-      raw.math.vec3.set(this.specular, 0, 0, 0);
-
-      this.texture_tiles = null;
-      this.normalmap_tiles = null;
-
-      this.tile_size = raw.math.vec2(512, 0);
-      this.texture_repeat = raw.math.vec4(4, 4,4, 4);
-      this.normalmap_repeat = raw.math.vec4(8, 8, 8,8);
-
-
-
-      this.shader = terrain_material.shader;
-      if (def.material) {
-
-        if (def.material.normalmap_tiles) {
-          this.normalmap_tiles = raw.webgl.texture.create_tiled_texture(def.material.normalmap_tiles,
-            def.material.tile_size || 512,
-            def.material.texture_size || 1024,
-            def.material.texture_size || 1024
-          );
-
-          this.tile_size[0] = this.normalmap_tiles.tile_sizef;
-          this.tile_size[1] = this.normalmap_tiles.tile_offsetf;
-
-        }
-
-        if (def.material.texture_tiles) {
-          this.texture_tiles = raw.webgl.texture.create_tiled_texture(def.material.texture_tiles,
-            def.material.tile_size || 512,
-            def.material.texture_size || 1024,
-            def.material.texture_size || 1024
-          );
-
-          this.tile_size[0] = this.texture_tiles.tile_sizef;
-          this.tile_size[1] = this.texture_tiles.tile_offsetf;
-
-        }
-
-       
-
-        if (def.material.shader) {
-          this.shader = this.shader.extend(def.material.shader);
-        }
-      }
-
-
-      
-    }
-    terrain_material.shader = raw.webgl.shader.parse(glsl["flat-material"]);
-
-
-    return terrain_material;
-
-
-  }, raw.shading.shaded_material);
-
-
-  var create_skybox = (function () {
-    var skybox_material = raw.define(function (proto, _super) {
-
-      var view_direction_projection_matrix =raw.math.mat4();
-      var view_direction_projection_inverse_matrix = raw.math.mat4();
-
-      var sun_params = raw.math.vec4();
-      var tmat = raw.math.mat4();
       proto.render_mesh = function (renderer, shader, mesh) {
 
         this.depth_and_cull(renderer);
 
-        raw.math.mat4.copy(tmat, renderer.active_camera.view_inverse);
-        if (mesh.skybox_camera_version !== renderer.active_camera.version) {
-          tmat[12] = 0; tmat[13] = 0; tmat[14] = 0;
+        shader.set_uniform("u_object_material_rw", this.object_material);
 
-          raw.math.mat4.multiply(view_direction_projection_matrix,
-            renderer.active_camera.projection,
-            tmat
-          );
+        shader.set_uniform("u_tile_size_rw", this.tile_size);
+        shader.set_uniform("u_texture_repeat_rw", this.texture_repeat);
+        shader.set_uniform("u_normalmap_repeat_rw", this.normalmap_repeat);
 
-          raw.math.mat4.inverse(view_direction_projection_inverse_matrix, view_direction_projection_matrix);
+        renderer.use_texture(this.texture_tiles, 0);
+        renderer.use_texture(this.normalmap_tiles, 1);
 
-         
-          mesh.skybox_camera_version = renderer.active_camera.version;
+
+        shader.set_uniform("u_normalmap_tiles_rw", 1);
+
+
+
+
+        this.terrain.render_terrain(renderer, shader);
+      };
+
+      function terrain_material(def) {
+        def = def || {};
+        _super.apply(this, [def]);
+        this.terrain = def.terrain;
+        raw.math.vec3.set(this.ambient, 0.5, 0.5, 0.5);
+        raw.math.vec3.set(this.specular, 0, 0, 0);
+
+        this.texture_tiles = null;
+        this.normalmap_tiles = null;
+
+        this.tile_size = raw.math.vec2(512, 0);
+        this.texture_repeat = raw.math.vec4(4, 4, 4, 4);
+        this.normalmap_repeat = raw.math.vec4(8, 8, 8, 8);
+
+
+
+        this.shader = terrain_material.shader;
+        if (def.material) {
+
+          if (def.material.normalmap_tiles) {
+            this.normalmap_tiles = raw.webgl.texture.create_tiled_texture(def.material.normalmap_tiles,
+              def.material.tile_size || 512,
+              def.material.texture_size || 1024,
+              def.material.texture_size || 1024
+            );
+
+            this.tile_size[0] = this.normalmap_tiles.tile_sizef;
+            this.tile_size[1] = this.normalmap_tiles.tile_offsetf;
+
+          }
+
+          if (def.material.texture_tiles) {
+            this.texture_tiles = raw.webgl.texture.create_tiled_texture(def.material.texture_tiles,
+              def.material.tile_size || 512,
+              def.material.texture_size || 1024,
+              def.material.texture_size || 1024
+            );
+
+            this.tile_size[0] = this.texture_tiles.tile_sizef;
+            this.tile_size[1] = this.texture_tiles.tile_offsetf;
+
+          }
+
+
+
+          if (def.material.shader) {
+            this.shader = this.shader.extend(def.material.shader);
+          }
         }
 
 
-        
-
-
-        sun_params[0] = this.sun_direction[0];
-        sun_params[1] = this.sun_direction[1];
-        sun_params[2] = this.sun_direction[2];
-        sun_params[3] = this.sun_angular_diameter_cos;
-
-        shader.set_uniform("u_view_projection_matrix_rw", view_direction_projection_inverse_matrix);
-        shader.set_uniform("u_sun_params_rw", sun_params);
-        renderer.gl.depthFunc(raw.GL_LEQUAL);        
-        renderer.gl.drawArrays(4, 0, mesh.geometry.num_items);
-        renderer.gl.depthFunc(raw.GL_LESS);
-
-
-
-      };
-
-      function skybox_material(def) {
-        def = def || {};
-        _super.apply(this, [def]);   
-        this.shader = skybox_material.shader;
-
-        this.sun_direction = def.sun_direction || [0.0, 1.0, 0.0];
-        this.sun_angular_diameter_cos = 0.99991;
 
       }
-      skybox_material.shader = raw.webgl.shader.parse(glsl["skybox"]);
+      terrain_material.shader = raw.webgl.shader.parse(glsl["default-material"]);
 
 
-      return skybox_material;
+      return terrain_material;
 
 
-    }, raw.shading.material);
+    }, raw.shading.shaded_material);
 
-
-    return function (def) {
-      return new raw.rendering.mesh({
-        flags: raw.DISPLAY_ALWAYS,
-        geometry: raw.geometry.create({
-          vertices: new Float32Array([
-            -1, -1,
-            1, -1,
-            -1, 1,
-            -1, 1,
-            1, -1,
-            1, 1,
-          ]), vertex_size: 2
-        }),
-        material: new skybox_material(def)
-      })
-
-    }
-
-  })();
-
-  raw.ecs.register_component("terrain", raw.define(function (proto, _super) {
-
-    var time_start = 0, reg, reg_x, reg_z, reg_key, i = 0;
+    var time_start = 0, reg, reg_x, reg_z, reg_key, i = 0,render_item=null;
     proto.create = (function (_super_call) {
-      return function (def, entity) {        
+      return function (def, entity,ecs) {        
         _super_call.apply(this, [def, entity]);
+
+        render_item = ecs.attach_component(entity, 'render_item', {});
+
+
         this.camera_version =986732;
         this.region_size = def.region_size || 512;
         this.world_size = def.world_size || (4096 * 2);
@@ -188,7 +108,7 @@
 
         
         
-        this.items.push(new raw.rendering.mesh({
+        render_item.items.push(new raw.rendering.mesh({
           flags: raw.DISPLAY_ALWAYS,
           geometry: raw.geometry.create({vertices: new Float32Array(0) }),
           material: new terrain_material({
@@ -197,12 +117,6 @@
           })
         }));
         
-
-        if (def.skybox) {
-          this.items.push(create_skybox(def.skybox));
-        }
-
-
         this.regions = {};
         this.objects = {};
         this.regions_to_render = [];
@@ -1543,7 +1457,7 @@
 
     };
 
-    proto.update_terrain = (function () {
+    proto.update = (function () {
 
 
       proto.validate_regions = (function () {
@@ -1800,6 +1714,8 @@
           ' parking ' + this.parking_length +
           ' / tri count ' + this.tri_count
         );
+
+
       }
 
 
@@ -1867,10 +1783,8 @@
 
 
             if (this.shaded) {            
-            //renderer.use_texture(this.shadow_map, 1);
-             
-              raw.math.vec3.set(land_color, 1, 1, 1);
-              shader.set_uniform('land_color', land_color);
+            //renderer.use_texture(this.shadow_map, 1);             
+              shader.set_uniform('land_color', raw.math.vec3.set(land_color, 1, 1, 1));
               renderer.gl.drawArrays(raw.GL_TRIANGLES, _ds, _di);
             }
 
@@ -1896,13 +1810,13 @@
             shader.set_uniform('reg_pos', reg_pos);
             this.tri_count += _di;
             if (this.wireframe) {
-              shader.set_uniform('land_color',raw.math.vec3.set(land_color, 0.5, 0.5, 0.5));
+              shader.set_uniform('terrain_color',raw.math.vec3.set(terrain_color, 0.5, 0.5, 0.5));
               renderer.gl.drawElements(raw.GL_LINES, _di * 2, raw.GL_UNSIGNED_INT, (_ds * 2) * 4);
             }
 
 
             if (this.shaded) {
-              shader.set_uniform('land_color',raw.math.vec3.set(land_color, 0, 0, 0));
+              shader.set_uniform('terrain_color',raw.math.vec3.set(terrain_color, 0, 0, 0));
               renderer.gl.drawArrays(raw.GL_TRIANGLES, _ds, _di);
             }
 
@@ -1936,7 +1850,109 @@
 
     return terrain;
 
-  }, raw.ecs.components["render_item"]));
+  }, raw.ecs.component));
+
+  raw.ecs.register_component("skybox", raw.define(function (proto, _super) {
+    var skybox_material = raw.define(function (proto, _super) {
+
+      var view_direction_projection_matrix = raw.math.mat4();
+      var view_direction_projection_inverse_matrix = raw.math.mat4();
+
+      var sun_params = raw.math.vec4();
+      var tmat = raw.math.mat4();
+      proto.render_mesh = function (renderer, shader, mesh) {
+
+        this.depth_and_cull(renderer);
+
+        raw.math.mat4.copy(tmat, renderer.active_camera.view_inverse);
+        if (mesh.skybox_camera_version !== renderer.active_camera.version) {
+          tmat[12] = 0; tmat[13] = 0; tmat[14] = 0;
+
+          raw.math.mat4.multiply(view_direction_projection_matrix,
+            renderer.active_camera.projection,
+            tmat
+          );
+
+          raw.math.mat4.inverse(view_direction_projection_inverse_matrix, view_direction_projection_matrix);
+
+
+          mesh.skybox_camera_version = renderer.active_camera.version;
+        }
+
+
+
+
+
+        sun_params[0] = this.sun_direction[0];
+        sun_params[1] = this.sun_direction[1];
+        sun_params[2] = this.sun_direction[2];
+        sun_params[3] = this.sun_angular_diameter_cos;
+
+        shader.set_uniform("u_view_projection_matrix_rw", view_direction_projection_inverse_matrix);
+        shader.set_uniform("u_sun_params_rw", sun_params);
+        renderer.gl.depthFunc(raw.GL_LEQUAL);
+        renderer.gl.drawArrays(4, 0, mesh.geometry.num_items);
+        renderer.gl.depthFunc(raw.GL_LESS);
+
+
+
+      };
+
+      function skybox_material(def) {
+        def = def || {};
+        _super.apply(this, [def]);
+        this.shader = skybox_material.shader;
+
+       
+        this.sun_direction = def.sun_direction || [0.0, 1.0, 0.0];
+        this.sun_angular_diameter_cos = 0.99991;
+
+      }
+      skybox_material.shader = raw.webgl.shader.parse(glsl["skybox"]);
+
+
+      return skybox_material;
+
+
+    }, raw.shading.material);
+
+    var render_item = null;
+
+    proto.create = (function (_super) {
+      return function (def, entity,ecs) {
+        _super.apply(this, [def, entity]);
+        render_item = ecs.attach_component(entity, 'render_item', {});
+
+        render_item.items.push(new raw.rendering.mesh({
+          flags: raw.DISPLAY_ALWAYS,
+          geometry: raw.geometry.create({
+            vertices: new Float32Array([
+              -1, -1,
+              1, -1,
+              -1, 1,
+              -1, 1,
+              1, -1,
+              1, 1,
+            ]), vertex_size: 2
+          }),
+          material: new skybox_material(def)
+        }))
+      }
+    })(proto.create);
+
+
+    function sky_box(component) {
+      _super.apply(this);
+
+    }
+
+
+
+    return sky_box;
+
+  }, raw.ecs.component));
+
+
 
 
 
@@ -1955,7 +1971,7 @@
           if (this.renderer.active_camera !== null) {
             terrain.camera = this.renderer.active_camera;
             if (terrain.camera.version !== terrain.camera_version) {
-              terrain.update_terrain();
+              terrain.update();
               terrain.camera_version = terrain.camera.version;
               this.worked_items++;
             }

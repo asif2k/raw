@@ -1,5 +1,4 @@
-﻿
-/*chunk-flat-material*/
+﻿/*chunk-default-material*/
 
 <?=chunk('precision')?>
 attribute vec3 a_position_rw;
@@ -52,7 +51,10 @@ varying vec3 v_normal_rw;
 varying vec2 v_uv_rw;
 varying mat3 v_tbn_matrix;
 
-<?=chunk('fws-lighting')?>
+<?=chunk('global-render-system-lighting')?>
+
+<?=chunk('global-render-system-fog-effect')?>
+
 
 uniform vec3 land_color;
 
@@ -121,7 +123,7 @@ float sample_smap_pcf(vec2 coords)
 }
 
 
-<?=chunk('global-fog-effect')?>
+
 
 void fragment(void) {	
 
@@ -145,16 +147,14 @@ tile_offset=u_tile_size_rw.y;
 	normal=normalize(v_normal_rw+normal);
 
 	 vec3 fws_direction_to_eye = normalize(u_eye_position_rw.xyz - v_position_rw.xyz);		
-	fws_total_light=fws_lighting_calc(u_object_material_rw,v_position_rw.xyz,
+	vec3 total_light=get_render_system_lighting(u_object_material_rw,v_position_rw.xyz,
 	normal,
 	fws_direction_to_eye);	
 
 	
 
 
-	gl_FragColor = vec4((fws_total_light
-	
-	)*land_color, u_object_material_rw[0].w)*	
+	gl_FragColor = vec4((total_light)*land_color, u_object_material_rw[0].w)*	
 	mix_texture_tiles(tile1,tile2,tile3,tile4,normal);
 	//gl_FragColor.w*=u_object_material_rw[0].w;
 	gl_FragColor=mix_fog_color(gl_FragColor);
@@ -242,7 +242,7 @@ vec3 Uncharted2Tonemap(vec3 x) {
    return ((x*(A*x+C*B)+D*E)/(x*(A*x+B)+D*F))-E/F;
 }
 
-<?=chunk('global-fog-effect')?>
+<?=chunk('global-render-system-fog-effect')?>
 
 void fragment(void) {
 	

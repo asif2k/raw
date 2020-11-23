@@ -982,9 +982,9 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
 
 
         if (light.light_type === 0) {
-          u_light_pos_rw[0] = light.matrix_world[8] * 9999;
-          u_light_pos_rw[1] = light.matrix_world[9] * 9999;
-          u_light_pos_rw[2] = light.matrix_world[10] * 9999;
+          u_light_pos_rw[0] = light.matrix_world[8] * 99999;
+          u_light_pos_rw[1] = light.matrix_world[9] * 99999;            
+          u_light_pos_rw[2] = light.matrix_world[10] * 99999;
         }
 
 
@@ -1248,6 +1248,9 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
 
   };
 
+  proto.get_element = function () {
+    return this.gl.canvas;
+  };
 
 
 

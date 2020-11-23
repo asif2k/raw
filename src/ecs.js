@@ -4,14 +4,11 @@ raw.ecs = raw.define(function (proto) {
     def = def || {};
     this.systems = {};
     this.components = {};
+    this._components = [];
     this._systems = [];
     this.entities = {};
     this.globals = {};
     this.memory_blocks = {};
-    this.def_components = def.components || [];
-    this.def_components.for_each(function (name_id, i, ecs) {
-     // ecs.use_component(name_id);
-    },this);
   }
 
   proto.create_memory_block = function (name_id, initial_size) {
@@ -27,12 +24,14 @@ raw.ecs = raw.define(function (proto) {
     var entity = { uuid: def.uuid || raw.guidi() };
     this.entities[entity.uuid] = entity;
     if (def.components) {
-      this.def_components.for_each(function (name_id, i, ecs) {
-        if (def.components[name_id]) {
-          
-          ecs.attach_component(entity, name_id, def.components[name_id]);
+      for (name_id in def.components) {
+        this.use_component(name_id);
+      }
+      this._components.for_each(function (comp, i, ecs) {
+        if (def.components[comp.name_id]) {
+          ecs.attach_component(entity, comp.name_id, def.components[comp.name_id]);
         }
-      },this);
+      }, this);  
     }
     return entity;
   };
@@ -45,12 +44,16 @@ raw.ecs = raw.define(function (proto) {
 
   proto.attach_component = function (e, name_id, def) {
     comp = this.use_component(name_id);
-    var ins = new comp.creator(comp);
-    ins.create(def, e, this);
+   
+    if (e[comp.name_id]) return e[comp.name_id];
+    var ins = new comp.creator(comp);    
+    ins.create(def , e, this);
+    comp = this.components[name_id];
     if (this.components[name_id].set_instance !== null) {
       this.components[name_id].set_instance(ins, ecs);
     }
     this.map_component_entity(e, this.components[name_id], ins);
+    return e[comp.name_id];
   };
 
   var comp, sys;
@@ -58,6 +61,7 @@ raw.ecs = raw.define(function (proto) {
     if (!this.components[name_id]) {
       comp = ecs.components[name_id];
       this.components[name_id] = {
+        priority: comp.priority,
         name_id: name_id, set_instance: null,
         creator: comp, ecs: this, entities: [], ei: 0
       };
@@ -65,6 +69,11 @@ raw.ecs = raw.define(function (proto) {
         this.components[name_id].parent = this.use_component(comp.super_class.name_id)
       }
       if (comp.validate) comp.validate(this.components[name_id]);
+      this._components.push(this.components[name_id]);
+      this._components = raw.merge_sort(this._components, this._components.length, function (a, b) {
+        return a.priority - b.priority;
+      });
+
       this.required_validation = true;
     }
     return this.components[name_id];
@@ -205,7 +214,7 @@ raw.ecs = raw.define(function (proto) {
 
 
 
-  ecs.components = {};
+  ecs.components = {};  
   ecs.systems = {};
   console.log('ecs.systems', ecs.systems);
   console.log('ecs.components', ecs.components);
@@ -214,7 +223,12 @@ raw.ecs = raw.define(function (proto) {
   ecs.register_component = function (name_id, comp) {
     comp.name_id = name_id;
     this.components[comp.name_id] = comp;
+    comp.priority = ecs.register_component.priority;
+    ecs.register_component.priority += 1000;
   };
+
+  ecs.register_component.priority = 1000;
+
 
   ecs.register_system = function (name_id, sys) {
     sys.name_id = name_id;

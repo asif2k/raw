@@ -11,7 +11,7 @@ raw.ecs.register_component("camera", raw.define(function (proto, _super) {
       this.type = def.type || "perspective";
       if (this.type === "perspective") {
         this.fov = (def.fov !== undefined ? def.fov : 60) * raw.math.DEGTORAD;
-        this.near = def.near !== undefined ? near : 0.1;
+        this.near = def.near !== undefined ? def.near : 0.1;
         this.far = def.far !== undefined ? def.far : 2000;
         this.aspect = def.aspect !== undefined ? def.aspect : 1;
       }

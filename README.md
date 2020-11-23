@@ -40,7 +40,7 @@ Many lights
 https://asif2k.github.io/raw/demos/lights.html
 
 Lights ,shadows and transparent objects
-https://asif2k.github.io/raw/demos/demo1.html
+https://asif2k.github.io/raw/demos/light_shadows.html
 
 Large terrain with dyamic lod and mesh optimization 
 https://asif2k.github.io/raw/demos/terrain.html
@@ -50,64 +50,39 @@ https://asif2k.github.io/raw/demos/terrain.html
 ## Usage
 ```
 
-// create app object and define components to use
-var app = new raw.ecs({
-    components: [
-      'transform',
-      'camera',
-      'transform_controller',      
-      'render_item',
-      'terrain',
-      'render_list',  
-    ]
-});
+   var my_app = new raw.application['3d']({
+      renderer: { pixel_ratio: 1 },
+      camera: { far: 2000 }
+    });
+    window.onresize = function () {
+      my_app.renderer.set_canvas_size(window.innerWidth, window.innerHeight);
+      my_app.camera.camera.update_aspect(window.innerWidth / window.innerHeight);
+    };
+    window.onresize();
 
-// create renderer system , app must have a renderer system
- var renderer = app.use_system('render_system', {});
+    document.body.appendChild(my_app.renderer.get_element());
+    var scene_light = my_app.create_render_item(new raw.shading.light(), function (entity, light) {
+      entity.transform.rotate_eular(-125 * raw.math.DEGTORAD, 160 * raw.math.DEGTORAD, 0);
 
- // create an entity and attach camera and other required components
-  var camera = app.create_entity({
-    components: {
-      'transform': {},
-      'camera': {
-        far: 2000
-      },
-      'transform_controller': { }
-    }
-  });
+      light.set_intensity(1).set_ambient(0.8, 0.8, 0.8);
+    });
 
-  // create an entity and attach render item(render item can be a mesh and light) and other required components
-  var default_light = app.create_entity({
-    components: {
-      'transform': { position: [220, 220, 220] },
-      'render_item': {
-        items: [new raw.shading.light()]
-      },
-      'transform_controller': { rotate: [0,1, 0] }
-    }
-  });
+    my_app.create_render_item(new raw.rendering.mesh({
+      geometry: raw.geometry.cube({ size: 2 }),
+      material: new raw.shading.material()
+    }), function (entity, box) {
+        entity.transform.set_position(0, 0, 0);
+    });
+
+    console.log(my_app);
+
+    my_app.camera.transform_controller.set_position(0, 0, 10);
+  
+
+    my_app.run_debug(function (delta) {
+
+    }, 1 / 60);
 
 
-  // create an entity and attach render item(render item can be a mesh and light) and other required components
-  var box = app.create_entity({
-    components: {
-      'transform': { position: [0, 1,0] },
-      'render_item': {
-        items: [new raw.rendering.mesh({
-            geometry: raw.geometry.cube(),
-            new raw.shading.shaded_material()
-          })]
-      },
-    }
-  });
-
-
-
-  var fps_timer = new raw.fps_timer();
-  fps_timer.loop(function (delta) {   
-      app.timer = fps_timer.current_timer;      
-      app.tick_debug(delta);
-    },
-  1/60);
 
 ```

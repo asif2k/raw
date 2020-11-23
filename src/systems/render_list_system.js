@@ -48,7 +48,7 @@ raw.ecs.register_component("render_list", raw.define(function (proto, _super) {
   proto.create = (function (_super) {
     return function (def, entity) {
       _super.apply(this, [def, entity]);
-      this.camera_version = -100;
+      this.camera_version = -14300;
       this.entity = entity;
       this.camera = def.camera || null;
       this.layer = (Math.pow(2, def.layer)) || 2;
