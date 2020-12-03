@@ -74,7 +74,7 @@
       console.log(ter);
 
       // update terrain system 15 times in one sec
-      app.systems.terrain_system.step_size = 1 / 10;
+      app.systems.terrain_system.step_size = 1 / 15;
       app.update_debug_canvas = function (ctx) {
         ctx.fillText('Terrain ' + ter.terrain.debug_text, 3, 500);
       };
