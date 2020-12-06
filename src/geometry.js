@@ -77,6 +77,11 @@ raw.geometry = raw.define(function (proto) {
       mat[14] = z;
 
       raw.geometry.transform(this, vert_att.data, vert_att.item_size, mat);
+
+      if (this.attributes["a_normal_rw"]) {
+        raw.geometry.transform(this, this.attributes["a_normal_rw"].data, this.attributes["a_normal_rw"].item_size, mat);
+      }
+      
       raw.geometry.calc_bounds(this, vert_att.data, vert_att.item_size);
       return this;
 

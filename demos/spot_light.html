@@ -1,0 +1,201 @@
+﻿<!DOCTYPE html>
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <title>raw</title>
+  <script src="../raw.js"></script>
+  <script src="demo.js"></script>
+</head>
+
+<body>
+  <script>    
+    demo_app({}, function (app) {
+
+      var scene_light = app.create_render_item(new raw.shading.light(), function (entity, light) {
+        app.attach_component(entity, 'transform_controller', {
+          rotate: [RD(-125), RD(160), 0]
+        });
+        app.attach_component(entity, 'skybox', {
+          sun_direction: entity.transform_controller.fw_vector
+        });
+        light.enabled = true;
+        
+        light.enable_shadows({          
+          shadow_intensity: 0.15,
+          shadow_map_size: 2048,
+          shadow_camera_distance: 20
+        })
+      });
+
+      var spot_light = app.create_render_item(new raw.shading.spot_light({
+        outer: raw.math.DEGTORAD * 60,
+        inner: raw.math.DEGTORAD * 60
+      }), function (entity, light) {
+        app.attach_component(entity, 'transform_controller', {
+          rotate: [RD(-90),0, 0],          
+        });
+
+
+          
+          entity.render_item.items.push(new raw.rendering.mesh({
+            geometry: raw.geometry.cube({size:0.5})
+          }));
+
+        
+          light.set_intensity(12).set_diffuse(0,1, 0.15);        
+
+          light.enable_shadows({
+            shadow_intensity: 0.15,
+            shadow_map_size: 1024,
+          });
+      });
+
+      var pg = raw.geometry.plane({ width: 300, height: 300, divs: 8 });
+      pg.scale_position_rotation(1, 1, 1, 0, 0, 0, -RD(90), 0, 0);
+
+      app.create_render_item(new raw.rendering.mesh({ geometry: pg, material: new raw.shading.shaded_material() }), function (e, m) {
+        m.material.texture = raw.webgl.texture.from_url("res/dirt.jpg", true);
+        raw.math.mat3.translate_rotate_scale(m.material.texture_matrix, 0, 0, 32, 32, 0);
+        e.transform.position[1] = -0.1;
+        m.material.flags += raw.SHADING.RECEIVE_SHADOW;
+      });
+
+      app.add_random_grid(60, 6, function (e) {
+        
+        if (Math.floor(Math.random() * 5) === 2) {
+          e.render_item.items[0].material.set_tansparency(Math.max(Math.random(), 0.6));
+        }
+        e.render_item.items[0].material.flags += raw.SHADING.CAST_SHADOW;
+      });
+
+      app.mouse_input.mouse_drage = (function (_super_call) {
+        return function (dx, dy, e) {
+          if (e.ctrlKey) {
+            scene_light.transform_controller.yaw_pitch(-dy * 0.005, dx * 0.005);           
+          }
+          else if (e.shiftKey) {
+            spot_light.transform_controller.yaw_pitch(-dy * 0.005, dx * 0.005);
+          }
+          else {
+            _super_call.apply(this, [dx, dy, e]);
+          }
+        }
+      })(app.mouse_input.mouse_drage);
+
+      var camera = app.camera;
+      var ca = 0;
+      camera.transform.position[1] = 6;
+      app.run_debug(function (delta) {
+
+
+        
+        camera.transform.position[0] = Math.sin(ca * raw.math.DEGTORAD) * 30;
+        camera.transform.position[2] = Math.cos(ca * raw.math.DEGTORAD) * 30;
+
+        camera.transform_controller.yaw_pitch(0,
+          Math.sin(ca * raw.math.DEGTORAD) * 0.01);
+
+        
+        spot_light.transform_controller.rotate_eular(
+          -(90 + Math.sin((ca*10) * raw.math.DEGTORAD) * 45) * raw.math.DEGTORAD,
+          0, 0);
+
+        spot_light.render_item.items[0].
+          set_diffuse(
+            Math.sin((ca*4) * raw.math.DEGTORAD) * 0.5 + 0.5,
+            Math.sin((ca * 7) * raw.math.DEGTORAD) * 0.45 + 0.5,
+            Math.sin((ca * 3) * raw.math.DEGTORAD) * 0.35 + 0.5);        
+
+
+        spot_light.transform_controller.set_position(
+          camera.transform.position[0] + camera.transform_controller.fw_vector[0] * -26,
+         7+(Math.sin((ca*7) * raw.math.DEGTORAD) *4),
+          camera.transform.position[2] + camera.transform_controller.fw_vector[2] * -26
+        );
+
+
+
+        ca += 0.065;
+        ca = ca % 360;
+
+      }, 1 / 60);
+    });
+
+
+  </script>
+
+  <script  type="text/html">
+    demo_app({}, function (app) {
+
+      var scene_light = app.create_render_item(new raw.shading.light(), function (entity, light) {
+        app.attach_component(entity, 'transform_controller', {
+          rotate: [RD(-125), RD(160), 0] 
+        });
+        app.attach_component(entity, 'skybox', {
+          sun_direction: entity.transform_controller.fw_vector
+        });
+        light.enable_shadows({
+          cast_shadows: true,
+          shadow_map_size: 2048,
+          shadow_camera_distance: 20
+        })
+      });
+
+      var pg = raw.geometry.plane({ width: 300, height: 300, divs: 8 });
+      pg.scale_position_rotation(1, 1, 1, 0, 0, 0, -RD(90), 0, 0);
+
+      app.create_render_item(new raw.rendering.mesh({ geometry: pg, material: new raw.shading.shaded_material() }), function (e, m) {
+          m.material.texture = raw.webgl.texture.from_url("res/r10.jpg", true);
+          raw.math.mat3.translate_rotate_scale(m.material.texture_matrix, 0, 0, 32, 32, 0);
+          e.transform.position[1] = -0.1;
+          m.material.flags += raw.SHADING.RECEIVE_SHADOW;
+      });
+      
+      app.add_random_grid(100, 10, function (e) {
+        e.render_item.items[0].material.flags += raw.SHADING.CAST_SHADOW + raw.SHADING.RECEIVE_SHADOW;
+        if (Math.floor(Math.random() * 5) === 2) {
+          e.render_item.items[0].material.set_tansparency(Math.max(Math.random(), 0.6));
+        }
+      });
+      
+      app.mouse_input.mouse_drage = (function (_super_call) {
+        return function (dx, dy, e) {
+          if (e.ctrlKey) {
+            scene_light.transform_controller.yaw_pitch(-dy * 0.005, dx * 0.005);
+            if (scene_light.transform_controller.rotate[0] > 0) {
+              scene_light.transform_controller.rotate[0] = 0;
+            }
+          }
+          else {
+            _super_call.apply(this, [dx, dy, e]);
+          }
+        }
+      })(app.mouse_input.mouse_drage);
+
+      var camera = app.camera;
+      var ca = 0;
+      camera.transform.position[1] = 1;
+      app.run_debug(function (delta) {
+        camera.transform.position[0] = Math.sin(ca * raw.math.DEGTORAD) * 100;
+        camera.transform.position[2] = Math.cos(ca * raw.math.DEGTORAD) * 100;
+
+        camera.transform_controller.yaw_pitch(0,
+          Math.sin(ca * raw.math.DEGTORAD) * 0.01);
+
+
+
+        ca += 0.025;
+        ca = ca % 360;
+
+
+      },1/60);
+    });
+
+
+
+
+  </script>
+  
+</body>
+</html>

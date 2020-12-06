@@ -12,7 +12,7 @@ raw.rendering = raw.rendering || {};
       _super.apply(this, [def]);
 
       this.geometry = def.geometry || null;
-      this.material = def.material || null;
+      this.material = def.material || (new raw.shading.material());
       this.draw_offset = 0;
       if (this.geometry !== null) this.draw_count = this.geometry.num_items;
       this.item_type = raw.ITEM_TYPES.MESH;

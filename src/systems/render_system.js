@@ -824,7 +824,8 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
       var shadow_maps = {}, shadow_map = null, m = 0, cast_count = 0,
         update_light_camera_matrices = false, total_shadow_casters = 0;
 
-      var u_shadow_params_rw = raw.math.vec3(), u_light_pos_rw = raw.math.vec3();
+      var u_shadow_params_rw = raw.math.vec4(), u_light_pos_rw = raw.math.vec3(),
+        u_light_dir_rw = raw.math.vec3(), u_shadow_attenuation_rw = raw.math.vec4();
 
       console.log("shadow_maps", shadow_maps);
       function get_shadow_map(gl, size) {
@@ -840,7 +841,7 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
 
       
       function get_shadow_map_shader(light_type, shader) {
-        if (light_type === 0) {
+        if (light_type >-1) {
           if (!shader.default_shadow_map) {
             shader.default_shadow_map = shader.extend(glsl['render-shadow-map'], { fragment: false });
             shader.default_shadow_map.shadow_shader = true;
@@ -850,7 +851,7 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
       };
 
       function get_shadow_receiver_shader(light_type, shader) {
-        if (light_type === 0) {
+        if (light_type >-1) {
           if (!shader.default_shadow_receiver) {
             shader.default_shadow_receiver = shader.extend(glsl['receive-shadow'], { fragment: false });
             shader.default_shadow_receiver.shadow_shader = true;
@@ -868,9 +869,23 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
           if ((mesh.material.flags & raw.SHADING.CAST_SHADOW) !== 0) {
             //if (!light.valid_shadow_caster(light_camera, mesh)) continue;
 
-            cast_count++;
-            if (renderer.use_shader(get_shadow_map_shader(light.light_type, mesh.material.shader))) {
 
+            if (light.light_type > 0) {
+              if (raw.math.vec3.distance2(
+                light_camera.view[12],
+                light_camera.view[13],
+                light_camera.view[14],
+                mesh.world_position[0],
+                mesh.world_position[1],
+                mesh.world_position[2]
+              ) - mesh.bounds_sphere > light.range * 3) {
+                continue
+              }
+            }
+
+
+            cast_count++;
+            if (renderer.use_shader(get_shadow_map_shader(light.light_type, mesh.material.shader))) {              
             }
             renderer.update_camera_uniforms(light_camera);
             renderer.update_model_uniforms(mesh);
@@ -879,22 +894,43 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
         }
         return cast_count;
       }
-      function render_shadow_receivers(renderer, light, light_camera, camera, meshes) {
-
+      function render_shadow_receivers(renderer, light, light_camera, camera, meshes) {        
         for (m = 0; m < meshes.length; m++) {
           mesh = meshes.data[m];
 
           if ((mesh.material.flags & raw.SHADING.RECEIVE_SHADOW) !== 0) {
 
 
+            if (light.light_type > 0) {
+              if (raw.math.vec3.distance2(
+                light_camera.view[12],
+                light_camera.view[13],
+                light_camera.view[14],
+                mesh.world_position[0],
+                mesh.world_position[1],
+                mesh.world_position[2]
+              ) - mesh.bounds_sphere > light.range*2) {
+                continue
+              }
+            }
+            renderer.receive_shadow_count++;
+
             if (renderer.use_shader(get_shadow_receiver_shader(light.light_type, mesh.material.shader))) {
               renderer.active_shader.set_uniform("u_shadow_map_rw", 4);
+
+              renderer.active_shader.set_uniform("u_light_material_rw", light.light_material);
               renderer.active_shader.set_uniform("u_light_camera_matrix_rw", light_camera.view_projection);
               renderer.active_shader.set_uniform("u_light_pos_rw", u_light_pos_rw);
+              renderer.active_shader.set_uniform("u_light_dir_rw", u_light_dir_rw);
+
               renderer.active_shader.set_uniform("u_shadow_params_rw", u_shadow_params_rw);
+              renderer.active_shader.set_uniform("u_shadow_attenuation_rw", u_shadow_attenuation_rw);
+              
+
+
             };
             renderer.update_camera_uniforms(camera);;
-            renderer.update_model_uniforms(mesh);
+            renderer.active_shader.set_uniform("u_model_rw", mesh.matrix_world);            
             renderer.render_mesh(mesh);
           }
 
@@ -905,9 +941,11 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
 
 
 
-      var d = 0, light_camera = null;
+      var d = 0, light_camera = null,s1=null;
       return function (light) {
+        s1 = get_shadow_map(this.gl, 1024);
         shadow_map = get_shadow_map(this.gl, light.shadow_map_size);
+        
 
         if (!light.camera) {
           light.camera = {
@@ -923,6 +961,13 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
             d = light.shadow_camera_distance * 2;
             raw.math.mat4.ortho(light.camera.projection, -d, d, -d, d, -d * 0.75, d * 5);
           }
+          else if (light.light_type === 1) {
+            raw.math.mat4.perspective(light.camera.projection,150 * raw.math.DEGTORAD, 1, 0.5, light.range * 8);            
+            raw.math.mat4.from_eular(light.camera.view, -90 * raw.math.DEGTORAD, 0, 0);
+          }
+          else if (light.light_type === 2) {
+            raw.math.mat4.perspective(light.camera.projection, light.view_angle , 1, 0.1, light.range * 4);
+          }
           light.camera.world_position = new Float32Array(light.camera.view.buffer, (12 * 4), 3);
 
 
@@ -933,7 +978,10 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
         if (light_camera.light_version !== light.version || update_light_camera_matrices) {
 
           if (light.light_type === 1) { // point light only set position
-            raw.math.vec3.copy(light_camera.world_position, light.world_position);
+            light_camera.view[12] = light.world_position[0];
+            light_camera.view[13] = light.world_position[1];
+            light_camera.view[14] = light.world_position[2];
+            //raw.math.vec3.copy(light_camera.world_position, light.world_position);
           }
           else {
             raw.math.mat4.copy(light_camera.view, light.matrix_world);
@@ -949,6 +997,7 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
             light_camera.world_position[1] = (camera.fw_vector[1] * (-d)) + camera.world_position[1];
             light_camera.world_position[2] = (camera.fw_vector[2] * (-d)) + camera.world_position[2];
           }
+        
           update_light_camera_matrices = true;
         }
 
@@ -974,24 +1023,87 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
           total_shadow_casters += render_shadow_casters(this, light, light_camera, transparent_meshes);
         }
 
-        this.gl.cullFace(raw.GL_BACK);
-        this.set_default_viewport();
-        u_shadow_params_rw[0] = light.shadow_opacity * 0.5;
+        
+        u_shadow_params_rw[0] = light.shadow_intensity;
         u_shadow_params_rw[1] = 1 / light.shadow_map_size;
         u_shadow_params_rw[2] = light.shadow_bias;
 
+        u_light_dir_rw[0] = light.matrix_world[8];
+        u_light_dir_rw[1] = light.matrix_world[9];
+        u_light_dir_rw[2] = light.matrix_world[10];
+
+
+        // light camera view angle  to clamp shadow
+        u_shadow_params_rw[3] = Math.cos(light.view_angle * 0.5);
+        
 
         if (light.light_type === 0) {
-          u_light_pos_rw[0] = light.matrix_world[8] * 99999;
-          u_light_pos_rw[1] = light.matrix_world[9] * 99999;            
-          u_light_pos_rw[2] = light.matrix_world[10] * 99999;
+          u_light_pos_rw[0] = u_light_dir_rw[0] * light.range;
+          u_light_pos_rw[1] = u_light_dir_rw[1] * light.range;
+          u_light_pos_rw[2] = u_light_dir_rw[2] * light.range;
+        }
+        else {         
+
+          raw.math.vec3.copy(u_light_pos_rw, light.world_position);
         }
 
 
+        this.gl.cullFace(raw.GL_BACK);
+
+
+        
+        //s1.bind();        
+        //this.use_direct_texture(shadow_map.depth_texture, 4);
+        //render_shadow_receivers(this, light, light_camera, camera, opuque_meshes);
+
+        this.set_default_viewport();
+
         if (total_shadow_casters > 0) {
+          this.receive_shadow_count = 0;
+
+          if (light.light_type === 1) {
+            u_shadow_attenuation_rw[0] = 0;
+            u_shadow_attenuation_rw[1] = (
+              light.attenuation[0]
+              + light.attenuation[1] 
+
+            )*2;
+            u_shadow_attenuation_rw[2] = light.attenuation[2]*2;
+            u_shadow_attenuation_rw[3] = light.range * 0.95;
+          }
+          else if (light.light_type === 2) {
+            u_shadow_attenuation_rw[0] = 0;
+            u_shadow_attenuation_rw[1] = (
+             light.attenuation[1]
+
+            ) * 0.75;
+            u_shadow_attenuation_rw[2] = light.attenuation[2]*0.5;
+            u_shadow_attenuation_rw[3] = light.range;
+
+            u_shadow_attenuation_rw[0] = 1;
+            u_shadow_attenuation_rw[1] = 0;
+            u_shadow_attenuation_rw[2] = 0;
+            u_shadow_attenuation_rw[3] = light.range;
+
+          }
+          else {
+
+           // u_shadow_params_rw[0] = light.shadow_intensity * (light.range * 0.5);
+            u_shadow_attenuation_rw[0] = 1;
+            u_shadow_attenuation_rw[1] = 0;
+            u_shadow_attenuation_rw[2] = 0;
+            u_shadow_attenuation_rw[3] = light.range;
+            
+          }
+          
+
+
+
+          
           this.enable_fw_rendering();
           this.gl.blendEquation(raw.GL_FUNC_REVERSE_SUBTRACT);
-          this.use_direct_texture(shadow_map.depth_texture, 4);
+          this.use_direct_texture(shadow_map.color_texture, 0);
+          this.use_direct_texture(shadow_map.depth_texture, 4);          
           render_shadow_receivers(this, light, light_camera, camera, opuque_meshes);
           if (transparent_meshes.length > 0) {
             this.gl.depthFunc(raw.GL_LESS);
@@ -1002,7 +1114,11 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
         }
 
 
-        // this.draw_textured_quad(shadow_map.color_texture,0.65,0.5,0.25,0.35);
+        
+
+
+
+      //  this.draw_textured_quad(shadow_map.color_texture,0.65,0.5,0.25,0.35);
 
 
 
@@ -1193,13 +1309,11 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
         if (mesh.material.flags & raw.SHADING.SHADED) {
           if (_this.light_pass_count >= mesh.material.light_pass_limit) continue;
           _this.render_lighting(camera, list.lights, function (update_shading_lights) {
-
             if (_this.use_shader(mesh.material.shader) || update_shading_lights) {
               update_shading_lights = false;
               _this.update_camera_uniforms(camera);
               _this.update_model_uniforms(mesh);
               _this.update_shading_lights(camera, mesh.material.lights_count);
-
 
               if (_this.light_pass_count === 0) {
                 _this.gl.enable(raw.GL_BLEND);
@@ -1210,11 +1324,9 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
                 _this.render_mesh(mesh);
               }
               else {
-
                 _this.gl.blendFunc(raw.GL_SRC_ALPHA, raw.GL_ONE);
                 _this.render_mesh(mesh);
               }
-
             }
 
 
@@ -1244,8 +1356,6 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
 
   proto.validate = function (ecs) {
     ecs.use_component('render_list');
-
-
   };
 
   proto.get_element = function () {

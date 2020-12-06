@@ -9,59 +9,8 @@
 </head>
 
 <body>
-  <script type="text/html">    
-    demo({}, function (app, renderer, camera) {
-     
-     
-      
-
-      var pg = raw.geometry.plane({ width: 300, height: 300, divs: 8 });
-      pg.scale_position_rotation(1, 1, 1, 0, 0, 0, -RD(90), 0, 0);
-      app.add_mesh(pg, new raw.shading.shaded_material(), {}, function (m) {
-        m.render_item.items[0].material.texture = raw.webgl.texture.from_url("res/r10.jpg", true);
-        raw.math.mat3.translate_rotate_scale(m.render_item.items[0].material.texture_matrix, 0, 0, 32, 32, 0);
-        m.transform.position[1] = -0.1;
-        m.render_item.items[0].material.flags += raw.SHADING.RECEIVE_SHADOW;
-      });
-
-      app.default_light.render_item.items[0].enable_shadows({
-        cast_shadows: true,
-        shadow_map_size: 2048,
-        shadow_camera_distance: 20
-      });
-      
-      app.add_random_grid(100, 10, function (m) {
-         m.render_item.items[0].material.flags += raw.SHADING.CAST_SHADOW + raw.SHADING.RECEIVE_SHADOW;
-        if (Math.floor(Math.random() * 5) === 2) {
-          m.render_item.items[0].material.set_tansparency(Math.max(Math.random(), 0.6));
-        }
-      });
-
-      var ca = 0;
-      camera.transform.position[1] = 1;
-      app.begin_loop(function (delta) {
-        
-        camera.transform.position[0] = Math.sin(ca * raw.math.DEGTORAD) * 100;
-        camera.transform.position[2] = Math.cos(ca * raw.math.DEGTORAD) * 100;
-        
-        camera.transform_controller.yaw_pitch(0,
-          Math.sin(ca * raw.math.DEGTORAD) * 0.01);
-        
-       
-
-        ca += 0.025;
-        ca = ca % 360;
-        
-
-        app.tick_debug(delta);
-      }, 1 / 60);
-
-      
-    });
-
-  </script>
-
-  <script>
+ 
+  <script >
     demo_app({}, function (app) {
 
       var scene_light = app.create_render_item(new raw.shading.light(), function (entity, light) {
@@ -72,7 +21,7 @@
           sun_direction: entity.transform_controller.fw_vector
         });
         light.enable_shadows({
-          cast_shadows: true,
+          shadow_intensity:0.15,
           shadow_map_size: 2048,
           shadow_camera_distance: 20
         })

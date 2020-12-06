@@ -28,6 +28,7 @@ raw.ecs.register_component("camera", raw.define(function (proto, _super) {
       this.drag_direction = raw.math.vec3();
       this.last_drag_direction = raw.math.vec3();
       this.version = 0;
+      this.update_view_projection = 1;
 
     }
   })(proto.create);

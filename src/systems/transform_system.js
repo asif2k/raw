@@ -334,6 +334,10 @@ raw.ecs.register_component("transform_controller", raw.define(function (proto, _
       this.transform = entity.transform;
       this.rotate_eular(this.rotate[0], this.rotate[1], this.rotate[2]);
 
+      if (def.position) {
+        this.set_position(def.position[0], def.position[1], def.position[2]);
+      }
+
     }
   })(proto.create);
 

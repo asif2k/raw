@@ -37,11 +37,18 @@ however i use http-serve to test and run demos
 
 ## Demos
 
-Many lights
+directional light with shadows and transparent objects
+https://asif2k.github.io/raw/demos/light_shadows.html
+
+spot light with shadows and transparent objects
+https://asif2k.github.io/raw/demos/spot_light.html
+
+point light with fake shadows(simulated spot light shadows with wide view angle 160 degree ) and transparent objects
+https://asif2k.github.io/raw/demos/point_light.html
+
+stress test with many lights , untill fps is greater than 55 it will keep adding 10 lights per step
 https://asif2k.github.io/raw/demos/lights.html
 
-Lights ,shadows and transparent objects
-https://asif2k.github.io/raw/demos/light_shadows.html
 
 Large terrain with dyamic lod and mesh optimization 
 https://asif2k.github.io/raw/demos/terrain.html

@@ -201,11 +201,19 @@ Math.clamp = Math.clamp || function (v, l, h) {
       return Math.sqrt(ax * ax + ay * ay + az * az);
     },
     distance2: function (x0, y0, z0, x1, y1, z1) {
-      return Math.sqrt(
-        (x1 - x0) * (x1 - x0)+
-        (y1 - y0) * (y1 - y0)+
-        (z1 - z0) * (z1 - z0));
+      return Math.abs(Math.sqrt(
+        (x1 - x0) * (x1 - x0) +
+        (y1 - y0) * (y1 - y0) +
+        (z1 - z0) * (z1 - z0)));
     },
+
+    distance_sq: function (x0, y0, z0, x1, y1, z1) {
+      x = x1 - x0;
+      y = y1 - y0;
+      z = z1 - z0;
+      return x * x + y * y + z * z;
+    },
+
     distance: function (a, b) {
       return Math.abs(Math.sqrt(this.length_sq(this.subtract(v3_1, b, a))));
 
@@ -842,6 +850,9 @@ Math.clamp = Math.clamp || function (v, l, h) {
       mat[10] *= scale[2];
       mat[11] *= scale[2];
       return mat;
+    },
+    from_eular: function (m, x, y, z) {      
+      return raw.math.quat.to_mat4(m, raw.math.quat.rotate_eular(QT_1, x, y, z));
     }
   });
 

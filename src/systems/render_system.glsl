@@ -21,9 +21,13 @@ float fws_spot_light_status;
 vec3 fws_total_light;
 vec3 fws_light_value;
 
-vec3 fws_lighting(mat4 fws_object_material, mat4 fws_light_material,
-	vec3 fws_vertex_position, vec3 fws_vertex_normal,
-	vec3 fws_direction_to_eye,vec3 fws_direction_to_light, vec3 fws_direction_from_light) {
+vec3 fws_lighting(
+	mat4 fws_object_material,
+	mat4 fws_light_material,
+	vec3 fws_vertex_position, 
+	vec3 fws_vertex_normal,
+	vec3 fws_direction_to_eye,
+	vec3 fws_direction_to_light, vec3 fws_direction_from_light) {
 
 	fws_distance_to_light = length(fws_direction_to_light);
 
@@ -40,7 +44,7 @@ vec3 fws_lighting(mat4 fws_object_material, mat4 fws_light_material,
 	fws_attenuation = (fws_light_material[3].x + fws_light_material[3].y * fws_distance_to_light
 		+ fws_light_material[3].z * (fws_distance_to_light * fws_distance_to_light)) + fws_light_material[3].w;
 
-	fws_spot_light_status = step(0.000001, fws_light_material[1].w);
+	fws_spot_light_status = step(0.000001, fws_light_material[1].w);	
 	fws_spot_theta = dot(fws_direction_to_light, fws_direction_from_light);
 	fws_spot_light_calc = clamp((fws_spot_theta - fws_light_material[2].w) / (fws_light_material[1].w - fws_light_material[2].w), 0.0, 1.0);
 	fws_intensity *= (fws_spot_light_status * (step(fws_light_material[1].w, fws_spot_theta) * fws_spot_light_calc))
@@ -67,7 +71,11 @@ vec3 fws_lighting(mat4 fws_object_material, mat4 fws_light_material,
 }
 
 
-vec3 get_render_system_lighting(mat4 object_material_rw,vec3 fws_vertex,vec3 fws_normal,vec3 fws_direction_to_eye){
+vec3 get_render_system_lighting(
+	mat4 object_material_rw,
+	vec3 fws_vertex,
+	vec3 fws_normal,
+	vec3 fws_direction_to_eye){
 
 	fws_total_light=vec3(0.0);
 	<?for (var i = 0;i < param('fws_num_lights');i++) {?>
@@ -76,7 +84,7 @@ vec3 get_render_system_lighting(mat4 object_material_rw,vec3 fws_vertex,vec3 fws
 				u_light_material_rw<?=i?>,
 				fws_vertex, fws_normal, fws_direction_to_eye,
 				u_light_matrix_rw<?=i?>[3].xyz - fws_vertex,
-				u_light_matrix_rw<?=i?>[2].xyz);
+			 u_light_matrix_rw<?=i?>[2].xyz);
 	<?}?>
 
 	return fws_total_light;
@@ -135,13 +143,12 @@ void fragment(void) {
 /*chunk-render-shadow-map*/
 
 <?=chunk('precision')?>
-
 uniform sampler2D u_texture_rw;
 varying vec2 v_uv_rw;
+void fragment(void) {			
 
-void fragment(void) {		
 	if(texture2D(u_texture_rw, v_uv_rw).a<0.02) discard;	
-	gl_FragColor=vec4(1.0);	
+	gl_FragColor=vec4(0.85);	
 }
 
 
@@ -161,14 +168,16 @@ void vertex(){
 
 varying vec3 v_normal_rw;
 varying vec4 v_shadow_light_vertex_rw;
-
 uniform sampler2D u_texture_rw;
 uniform sampler2D u_shadow_map_rw;
-uniform vec3 u_shadow_params_rw;
+uniform vec4 u_shadow_params_rw;
+uniform vec4 u_shadow_attenuation_rw;
+
 uniform vec3 u_light_pos_rw;
+uniform vec3 u_light_dir_rw;
+
 varying vec2 v_uv_rw;
 varying vec4 v_position_rw;
-
 
 
 float get_shadow_sample() {		
@@ -183,14 +192,40 @@ float get_shadow_sample() {
 	f*=step(shadow_map_coords.x,1.0)*step(shadow_map_coords.y,1.0)*step(shadow_map_coords.z,1.0);
 	f*=step(0.0,shadow_map_coords.x)*step(0.0,shadow_map_coords.y)*step(0.0,shadow_map_coords.y);
 	
-	return (0.5*f)-sample_shadow_map_pcf(u_shadow_map_rw, shadow_map_coords.xy,
-	shadow_map_coords.z-u_shadow_params_rw.z ,vec2(u_shadow_params_rw.y))*f;
+
+	vec3 fws_direction_to_light=(u_light_pos_rw.xyz-v_position_rw.xyz);			
+	
+	float fws_distance_to_light=length(fws_direction_to_light)*0.99;
+	fws_direction_to_light=normalize(fws_direction_to_light);
+
+		
+	float fws_spot_theta = dot(fws_direction_to_light,u_light_dir_rw);
+	float fws_spot_light_calc = clamp((fws_spot_theta) / u_shadow_params_rw.w, 0.0, 1.0);
+	
+	f*=(step(1.0,fws_spot_light_calc));
+
+	
+	float fws_attenuation = (u_shadow_attenuation_rw.y * fws_distance_to_light
+		+ u_shadow_attenuation_rw.z * (fws_distance_to_light * fws_distance_to_light));
+		
+
+
+
+	f/=(max(fws_attenuation,0.0));
+
+	f*=(u_shadow_attenuation_rw.w/fws_distance_to_light);
+
+	f*=(u_shadow_params_rw.x*(u_shadow_attenuation_rw.w/fws_distance_to_light));
+	f=clamp(f,0.0,0.8);
+	return  ((f-sample_shadow_map_pcf(u_shadow_map_rw, shadow_map_coords.xy,
+	shadow_map_coords.z-u_shadow_params_rw.z ,vec2(u_shadow_params_rw.y))*f)
+	*u_shadow_params_rw.x);
 
 		
 }
 
 
 void fragment(void) {	
-gl_FragColor = vec4((get_shadow_sample()*u_shadow_params_rw.x));
+gl_FragColor = vec4((get_shadow_sample()));
 
 }

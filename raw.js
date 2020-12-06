@@ -1871,11 +1871,19 @@ Math.clamp = Math.clamp || function (v, l, h) {
       return Math.sqrt(ax * ax + ay * ay + az * az);
     },
     distance2: function (x0, y0, z0, x1, y1, z1) {
-      return Math.sqrt(
-        (x1 - x0) * (x1 - x0)+
-        (y1 - y0) * (y1 - y0)+
-        (z1 - z0) * (z1 - z0));
+      return Math.abs(Math.sqrt(
+        (x1 - x0) * (x1 - x0) +
+        (y1 - y0) * (y1 - y0) +
+        (z1 - z0) * (z1 - z0)));
     },
+
+    distance_sq: function (x0, y0, z0, x1, y1, z1) {
+      x = x1 - x0;
+      y = y1 - y0;
+      z = z1 - z0;
+      return x * x + y * y + z * z;
+    },
+
     distance: function (a, b) {
       return Math.abs(Math.sqrt(this.length_sq(this.subtract(v3_1, b, a))));
 
@@ -2512,6 +2520,9 @@ Math.clamp = Math.clamp || function (v, l, h) {
       mat[10] *= scale[2];
       mat[11] *= scale[2];
       return mat;
+    },
+    from_eular: function (m, x, y, z) {      
+      return raw.math.quat.to_mat4(m, raw.math.quat.rotate_eular(QT_1, x, y, z));
     }
   });
 
@@ -3806,90 +3817,9 @@ raw.webgl.shader = raw.define(function (proto) {
 precision mediump float;\n\r
 #endif\n\r
 
+const float DEGTORAD=0.017453292519943295;
+const float RADTODEG=57.295779513082323;
 
-/*chunk-fws-lighting*/
-
-<?for(var i= 0;i<param('fws_num_lights');i++) {?>
-uniform mat4 u_light_material_rw<?=i?>;
-uniform mat4 u_light_matrix_rw<?=i?>;
-<?}?>
-
-
-
-
-
-float fws_distance_to_light;
-float fws_lambertian;
-float fws_specular;
-float fws_attenuation;
-float fws_intensity;
-float fws_spot_light_calc;
-float fws_spot_theta;
-float fws_spot_light_status;
-
-vec3 fws_total_light;
-vec3 fws_light_value;
-
-vec3 fws_lighting(mat4 fws_object_material, mat4 fws_light_material,
-vec3 fws_vertex_position, vec3 fws_vertex_normal,
-vec3 fws_direction_to_eye,vec3 fws_direction_to_light, vec3 fws_direction_from_light) {
-
-fws_distance_to_light = length(fws_direction_to_light);
-
-
-
-fws_direction_to_light = normalize(fws_direction_to_light);
-fws_lambertian = max(dot(fws_direction_to_light, fws_vertex_normal), 0.0);
-
-
-fws_lambertian =dot(fws_direction_to_light, fws_vertex_normal);
-
-fws_intensity = fws_light_material[0].w;
-
-fws_attenuation = (fws_light_material[3].x + fws_light_material[3].y * fws_distance_to_light
-+ fws_light_material[3].z * (fws_distance_to_light * fws_distance_to_light)) + fws_light_material[3].w;
-
-fws_spot_light_status = step(0.000001, fws_light_material[1].w);
-fws_spot_theta = dot(fws_direction_to_light, fws_direction_from_light);
-fws_spot_light_calc = clamp((fws_spot_theta - fws_light_material[2].w) / (fws_light_material[1].w - fws_light_material[2].w), 0.0, 1.0);
-fws_intensity *= (fws_spot_light_status * (step(fws_light_material[1].w, fws_spot_theta) * fws_spot_light_calc))
-+ abs(1.0 - fws_spot_light_status);
-
-
-fws_specular = pow(max(dot(normalize(fws_direction_to_light.xyz + fws_direction_to_eye), fws_vertex_normal), 0.0), fws_object_material[2].w) * fws_lambertian;
-fws_specular *= fws_intensity * step(0.0, fws_lambertian);
-
-
-
-
-fws_light_value = (fws_light_material[0].xyz * fws_object_material[0].xyz) +
-(fws_object_material[1].xyz * fws_lambertian * fws_light_material[1].xyz * fws_intensity) +
-(fws_object_material[2].xyz * fws_specular * fws_light_material[2].xyz);
-
-fws_light_value=max(fws_light_value,0.0);
-
-
-
-return (fws_light_value / fws_attenuation);
-
-
-}
-
-
-vec3 fws_lighting_calc(mat4 object_material_rw,vec3 fws_vertex,vec3 fws_normal,vec3 fws_direction_to_eye){
-
-fws_total_light=vec3(0.0);
-<?for (var i = 0;i < param('fws_num_lights');i++) {?>
-fws_total_light += fws_lighting(
-object_material_rw,
-u_light_material_rw<?=i?>,
-fws_vertex, fws_normal, fws_direction_to_eye,
-u_light_matrix_rw<?=i?>[3].xyz - fws_vertex,
-u_light_matrix_rw<?=i?>[2].xyz);
-<?}?>
-
-return fws_total_light;
-}
 
 
 
@@ -4383,6 +4313,11 @@ raw.geometry = raw.define(function (proto) {
       mat[14] = z;
 
       raw.geometry.transform(this, vert_att.data, vert_att.item_size, mat);
+
+      if (this.attributes["a_normal_rw"]) {
+        raw.geometry.transform(this, this.attributes["a_normal_rw"].data, this.attributes["a_normal_rw"].item_size, mat);
+      }
+      
       raw.geometry.calc_bounds(this, vert_att.data, vert_att.item_size);
       return this;
 
@@ -5336,8 +5271,13 @@ gl_FragColor.w*=u_object_material_rw[0].w;
 
   raw.shading.material = raw.define(function (proto, _super) {
     function material(def) {
-      _super.apply(this, arguments);
+    
       def = def || {};
+
+      
+      _super.apply(this, [def]);      
+
+
       this.uuid = raw.guidi();
 
       this.object_material = new Float32Array(16);
@@ -5583,7 +5523,7 @@ gl_FragColor.w*=u_object_material_rw[0].w;
       def = def || {};
       this.cast_shadows =true;
       this.shadow_bias = def.shadow_bias || 0.00000001;
-      this.shadow_opacity = def.shadow_opacity || 0.5;
+      this.shadow_intensity = def.shadow_intensity || this.shadow_intensity;
       this.shadow_map_size = def.shadow_map_size || 1024;
       this.shadow_camera_distance = def.shadow_camera_distance || 30;
       return (this);
@@ -5606,7 +5546,7 @@ gl_FragColor.w*=u_object_material_rw[0].w;
       this.light_type = 0;
       this.enabled = true;
       this.item_type = 4;
-
+      this.view_angle = Math.PI;
 
       raw.math.vec4.copy(this.ambient, def.ambient || [0.1, 0.1, 0.1, 1.0]);
       raw.math.vec4.copy(this.diffuse, def.diffuse || [0.87, 0.87, 0.87, -1]);
@@ -5615,7 +5555,7 @@ gl_FragColor.w*=u_object_material_rw[0].w;
 
       this.cast_shadows = def.cast_shadows || false;
       this.shadow_bias = def.shadow_bias || 0.00000001;
-      this.shadow_opacity = def.shadow_opacity || 0.5;
+      this.shadow_intensity = def.shadow_intensity || 0.25;
       this.shadow_map_size = def.shadow_map_size || 1024;
       this.shadow_camera_distance = def.shadow_camera_distance || 30;
 
@@ -5674,6 +5614,7 @@ gl_FragColor.w*=u_object_material_rw[0].w;
       def = def || {};
       _super.apply(this, [def]);
 
+      this.shadow_intensity = 0.9;
       this.range = def.range || 20;
 
       if (def.attenuation) {
@@ -5707,14 +5648,14 @@ gl_FragColor.w*=u_object_material_rw[0].w;
     };
 
     proto.set_inner_angle = function (angle) {
-      this.specular[3] = Math.cos(angle) / 2;
+      this.specular[3] = Math.cos(angle / 2);
       return (this);
     };
 
     function spot_light(def) {
       def = def || {};
       _super.apply(this, [def]);
-      this.view_angle = 0
+     
       this.range = def.range || 10;
       if (def.attenuation) {
         this.set_attenuation(this.attenuation[0], this.attenuation[1], this.attenuation[2]);
@@ -6099,7 +6040,7 @@ gl_FragColor=u_marker_color;
       _super.apply(this, [def]);
 
       this.geometry = def.geometry || null;
-      this.material = def.material || null;
+      this.material = def.material || (new raw.shading.material());
       this.draw_offset = 0;
       if (this.geometry !== null) this.draw_count = this.geometry.num_items;
       this.item_type = 2;
@@ -6873,6 +6814,10 @@ raw.ecs.register_component("transform_controller", raw.define(function (proto, _
       this.transform = entity.transform;
       this.rotate_eular(this.rotate[0], this.rotate[1], this.rotate[2]);
 
+      if (def.position) {
+        this.set_position(def.position[0], def.position[1], def.position[2]);
+      }
+
     }
   })(proto.create);
 
@@ -7016,6 +6961,7 @@ raw.ecs.register_component("camera", raw.define(function (proto, _super) {
       this.drag_direction = raw.math.vec3();
       this.last_drag_direction = raw.math.vec3();
       this.version = 0;
+      this.update_view_projection = 1;
 
     }
   })(proto.create);
@@ -12036,9 +11982,13 @@ float fws_spot_light_status;
 vec3 fws_total_light;
 vec3 fws_light_value;
 
-vec3 fws_lighting(mat4 fws_object_material, mat4 fws_light_material,
-vec3 fws_vertex_position, vec3 fws_vertex_normal,
-vec3 fws_direction_to_eye,vec3 fws_direction_to_light, vec3 fws_direction_from_light) {
+vec3 fws_lighting(
+mat4 fws_object_material,
+mat4 fws_light_material,
+vec3 fws_vertex_position, 
+vec3 fws_vertex_normal,
+vec3 fws_direction_to_eye,
+vec3 fws_direction_to_light, vec3 fws_direction_from_light) {
 
 fws_distance_to_light = length(fws_direction_to_light);
 
@@ -12082,7 +12032,11 @@ return (fws_light_value / fws_attenuation);
 }
 
 
-vec3 get_render_system_lighting(mat4 object_material_rw,vec3 fws_vertex,vec3 fws_normal,vec3 fws_direction_to_eye){
+vec3 get_render_system_lighting(
+mat4 object_material_rw,
+vec3 fws_vertex,
+vec3 fws_normal,
+vec3 fws_direction_to_eye){
 
 fws_total_light=vec3(0.0);
 <?for (var i = 0;i < param('fws_num_lights');i++) {?>
@@ -12091,7 +12045,7 @@ object_material_rw,
 u_light_material_rw<?=i?>,
 fws_vertex, fws_normal, fws_direction_to_eye,
 u_light_matrix_rw<?=i?>[3].xyz - fws_vertex,
-u_light_matrix_rw<?=i?>[2].xyz);
+ u_light_matrix_rw<?=i?>[2].xyz);
 <?}?>
 
 return fws_total_light;
@@ -12150,13 +12104,12 @@ gl_FragColor=u_color_id_rw/255.0;
 /*chunk-render-shadow-map*/
 
 <?=chunk('precision')?>
-
 uniform sampler2D u_texture_rw;
 varying vec2 v_uv_rw;
-
 void fragment(void) {
+
 if(texture2D(u_texture_rw, v_uv_rw).a<0.02) discard;
-gl_FragColor=vec4(1.0);
+gl_FragColor=vec4(0.85);
 }
 
 
@@ -12176,14 +12129,16 @@ v_shadow_light_vertex_rw = u_light_camera_matrix_rw * v_position_rw;
 
 varying vec3 v_normal_rw;
 varying vec4 v_shadow_light_vertex_rw;
-
 uniform sampler2D u_texture_rw;
 uniform sampler2D u_shadow_map_rw;
-uniform vec3 u_shadow_params_rw;
+uniform vec4 u_shadow_params_rw;
+uniform vec4 u_shadow_attenuation_rw;
+
 uniform vec3 u_light_pos_rw;
+uniform vec3 u_light_dir_rw;
+
 varying vec2 v_uv_rw;
 varying vec4 v_position_rw;
-
 
 
 float get_shadow_sample() {
@@ -12198,15 +12153,41 @@ shadow_map_coords.xyz = shadow_map_coords.xyz * 0.5 + 0.5;
 f*=step(shadow_map_coords.x,1.0)*step(shadow_map_coords.y,1.0)*step(shadow_map_coords.z,1.0);
 f*=step(0.0,shadow_map_coords.x)*step(0.0,shadow_map_coords.y)*step(0.0,shadow_map_coords.y);
 
-return (0.5*f)-sample_shadow_map_pcf(u_shadow_map_rw, shadow_map_coords.xy,
-shadow_map_coords.z-u_shadow_params_rw.z ,vec2(u_shadow_params_rw.y))*f;
+
+vec3 fws_direction_to_light=(u_light_pos_rw.xyz-v_position_rw.xyz);
+
+float fws_distance_to_light=length(fws_direction_to_light)*0.99;
+fws_direction_to_light=normalize(fws_direction_to_light);
+
+
+float fws_spot_theta = dot(fws_direction_to_light,u_light_dir_rw);
+float fws_spot_light_calc = clamp((fws_spot_theta) / u_shadow_params_rw.w, 0.0, 1.0);
+
+f*=(step(1.0,fws_spot_light_calc));
+
+
+float fws_attenuation = (u_shadow_attenuation_rw.y * fws_distance_to_light
++ u_shadow_attenuation_rw.z * (fws_distance_to_light * fws_distance_to_light));
+
+
+
+
+f/=(max(fws_attenuation,0.0));
+
+f*=(u_shadow_attenuation_rw.w/fws_distance_to_light);
+
+f*=(u_shadow_params_rw.x*(u_shadow_attenuation_rw.w/fws_distance_to_light));
+f=clamp(f,0.0,0.8);
+return ((f-sample_shadow_map_pcf(u_shadow_map_rw, shadow_map_coords.xy,
+shadow_map_coords.z-u_shadow_params_rw.z ,vec2(u_shadow_params_rw.y))*f)
+*u_shadow_params_rw.x);
 
 
 }
 
 
 void fragment(void) {
-gl_FragColor = vec4((get_shadow_sample()*u_shadow_params_rw.x));
+gl_FragColor = vec4((get_shadow_sample()));
 
 }`);
 
@@ -13031,7 +13012,8 @@ gl_FragColor = vec4((get_shadow_sample()*u_shadow_params_rw.x));
       var shadow_maps = {}, shadow_map = null, m = 0, cast_count = 0,
         update_light_camera_matrices = false, total_shadow_casters = 0;
 
-      var u_shadow_params_rw = raw.math.vec3(), u_light_pos_rw = raw.math.vec3();
+      var u_shadow_params_rw = raw.math.vec4(), u_light_pos_rw = raw.math.vec3(),
+        u_light_dir_rw = raw.math.vec3(), u_shadow_attenuation_rw = raw.math.vec4();
 
       console.log("shadow_maps", shadow_maps);
       function get_shadow_map(gl, size) {
@@ -13047,7 +13029,7 @@ gl_FragColor = vec4((get_shadow_sample()*u_shadow_params_rw.x));
 
       
       function get_shadow_map_shader(light_type, shader) {
-        if (light_type === 0) {
+        if (light_type >-1) {
           if (!shader.default_shadow_map) {
             shader.default_shadow_map = shader.extend(glsl['render-shadow-map'], { fragment: false });
             shader.default_shadow_map.shadow_shader = true;
@@ -13057,7 +13039,7 @@ gl_FragColor = vec4((get_shadow_sample()*u_shadow_params_rw.x));
       };
 
       function get_shadow_receiver_shader(light_type, shader) {
-        if (light_type === 0) {
+        if (light_type >-1) {
           if (!shader.default_shadow_receiver) {
             shader.default_shadow_receiver = shader.extend(glsl['receive-shadow'], { fragment: false });
             shader.default_shadow_receiver.shadow_shader = true;
@@ -13075,9 +13057,23 @@ gl_FragColor = vec4((get_shadow_sample()*u_shadow_params_rw.x));
           if ((mesh.material.flags & 8) !== 0) {
             //if (!light.valid_shadow_caster(light_camera, mesh)) continue;
 
-            cast_count++;
-            if (renderer.use_shader(get_shadow_map_shader(light.light_type, mesh.material.shader))) {
 
+            if (light.light_type > 0) {
+              if (raw.math.vec3.distance2(
+                light_camera.view[12],
+                light_camera.view[13],
+                light_camera.view[14],
+                mesh.world_position[0],
+                mesh.world_position[1],
+                mesh.world_position[2]
+              ) - mesh.bounds_sphere > light.range * 3) {
+                continue
+              }
+            }
+
+
+            cast_count++;
+            if (renderer.use_shader(get_shadow_map_shader(light.light_type, mesh.material.shader))) {              
             }
             renderer.update_camera_uniforms(light_camera);
             renderer.update_model_uniforms(mesh);
@@ -13086,22 +13082,43 @@ gl_FragColor = vec4((get_shadow_sample()*u_shadow_params_rw.x));
         }
         return cast_count;
       }
-      function render_shadow_receivers(renderer, light, light_camera, camera, meshes) {
-
+      function render_shadow_receivers(renderer, light, light_camera, camera, meshes) {        
         for (m = 0; m < meshes.length; m++) {
           mesh = meshes.data[m];
 
           if ((mesh.material.flags & 16) !== 0) {
 
 
+            if (light.light_type > 0) {
+              if (raw.math.vec3.distance2(
+                light_camera.view[12],
+                light_camera.view[13],
+                light_camera.view[14],
+                mesh.world_position[0],
+                mesh.world_position[1],
+                mesh.world_position[2]
+              ) - mesh.bounds_sphere > light.range*2) {
+                continue
+              }
+            }
+            renderer.receive_shadow_count++;
+
             if (renderer.use_shader(get_shadow_receiver_shader(light.light_type, mesh.material.shader))) {
               renderer.active_shader.set_uniform("u_shadow_map_rw", 4);
+
+              renderer.active_shader.set_uniform("u_light_material_rw", light.light_material);
               renderer.active_shader.set_uniform("u_light_camera_matrix_rw", light_camera.view_projection);
               renderer.active_shader.set_uniform("u_light_pos_rw", u_light_pos_rw);
+              renderer.active_shader.set_uniform("u_light_dir_rw", u_light_dir_rw);
+
               renderer.active_shader.set_uniform("u_shadow_params_rw", u_shadow_params_rw);
+              renderer.active_shader.set_uniform("u_shadow_attenuation_rw", u_shadow_attenuation_rw);
+              
+
+
             };
             renderer.update_camera_uniforms(camera);;
-            renderer.update_model_uniforms(mesh);
+            renderer.active_shader.set_uniform("u_model_rw", mesh.matrix_world);            
             renderer.render_mesh(mesh);
           }
 
@@ -13112,9 +13129,11 @@ gl_FragColor = vec4((get_shadow_sample()*u_shadow_params_rw.x));
 
 
 
-      var d = 0, light_camera = null;
+      var d = 0, light_camera = null,s1=null;
       return function (light) {
+        s1 = get_shadow_map(this.gl, 1024);
         shadow_map = get_shadow_map(this.gl, light.shadow_map_size);
+        
 
         if (!light.camera) {
           light.camera = {
@@ -13130,6 +13149,13 @@ gl_FragColor = vec4((get_shadow_sample()*u_shadow_params_rw.x));
             d = light.shadow_camera_distance * 2;
             raw.math.mat4.ortho(light.camera.projection, -d, d, -d, d, -d * 0.75, d * 5);
           }
+          else if (light.light_type === 1) {
+            raw.math.mat4.perspective(light.camera.projection,150 * 0.017453292519943295, 1, 0.5, light.range * 8);            
+            raw.math.mat4.from_eular(light.camera.view, -90 * 0.017453292519943295, 0, 0);
+          }
+          else if (light.light_type === 2) {
+            raw.math.mat4.perspective(light.camera.projection, light.view_angle , 1, 0.1, light.range * 4);
+          }
           light.camera.world_position = new Float32Array(light.camera.view.buffer, (12 * 4), 3);
 
 
@@ -13140,7 +13166,10 @@ gl_FragColor = vec4((get_shadow_sample()*u_shadow_params_rw.x));
         if (light_camera.light_version !== light.version || update_light_camera_matrices) {
 
           if (light.light_type === 1) { // point light only set position
-            raw.math.vec3.copy(light_camera.world_position, light.world_position);
+            light_camera.view[12] = light.world_position[0];
+            light_camera.view[13] = light.world_position[1];
+            light_camera.view[14] = light.world_position[2];
+            //raw.math.vec3.copy(light_camera.world_position, light.world_position);
           }
           else {
             raw.math.mat4.copy(light_camera.view, light.matrix_world);
@@ -13156,6 +13185,7 @@ gl_FragColor = vec4((get_shadow_sample()*u_shadow_params_rw.x));
             light_camera.world_position[1] = (camera.fw_vector[1] * (-d)) + camera.world_position[1];
             light_camera.world_position[2] = (camera.fw_vector[2] * (-d)) + camera.world_position[2];
           }
+        
           update_light_camera_matrices = true;
         }
 
@@ -13181,24 +13211,87 @@ gl_FragColor = vec4((get_shadow_sample()*u_shadow_params_rw.x));
           total_shadow_casters += render_shadow_casters(this, light, light_camera, transparent_meshes);
         }
 
-        this.gl.cullFace(1029);
-        this.set_default_viewport();
-        u_shadow_params_rw[0] = light.shadow_opacity * 0.5;
+        
+        u_shadow_params_rw[0] = light.shadow_intensity;
         u_shadow_params_rw[1] = 1 / light.shadow_map_size;
         u_shadow_params_rw[2] = light.shadow_bias;
 
+        u_light_dir_rw[0] = light.matrix_world[8];
+        u_light_dir_rw[1] = light.matrix_world[9];
+        u_light_dir_rw[2] = light.matrix_world[10];
+
+
+        // light camera view angle  to clamp shadow
+        u_shadow_params_rw[3] = Math.cos(light.view_angle * 0.5);
+        
 
         if (light.light_type === 0) {
-          u_light_pos_rw[0] = light.matrix_world[8] * 99999;
-          u_light_pos_rw[1] = light.matrix_world[9] * 99999;            
-          u_light_pos_rw[2] = light.matrix_world[10] * 99999;
+          u_light_pos_rw[0] = u_light_dir_rw[0] * light.range;
+          u_light_pos_rw[1] = u_light_dir_rw[1] * light.range;
+          u_light_pos_rw[2] = u_light_dir_rw[2] * light.range;
+        }
+        else {         
+
+          raw.math.vec3.copy(u_light_pos_rw, light.world_position);
         }
 
 
+        this.gl.cullFace(1029);
+
+
+        
+        //s1.bind();        
+        //this.use_direct_texture(shadow_map.depth_texture, 4);
+        //render_shadow_receivers(this, light, light_camera, camera, opuque_meshes);
+
+        this.set_default_viewport();
+
         if (total_shadow_casters > 0) {
+          this.receive_shadow_count = 0;
+
+          if (light.light_type === 1) {
+            u_shadow_attenuation_rw[0] = 0;
+            u_shadow_attenuation_rw[1] = (
+              light.attenuation[0]
+              + light.attenuation[1] 
+
+            )*2;
+            u_shadow_attenuation_rw[2] = light.attenuation[2]*2;
+            u_shadow_attenuation_rw[3] = light.range * 0.95;
+          }
+          else if (light.light_type === 2) {
+            u_shadow_attenuation_rw[0] = 0;
+            u_shadow_attenuation_rw[1] = (
+             light.attenuation[1]
+
+            ) * 0.75;
+            u_shadow_attenuation_rw[2] = light.attenuation[2]*0.5;
+            u_shadow_attenuation_rw[3] = light.range;
+
+            u_shadow_attenuation_rw[0] = 1;
+            u_shadow_attenuation_rw[1] = 0;
+            u_shadow_attenuation_rw[2] = 0;
+            u_shadow_attenuation_rw[3] = light.range;
+
+          }
+          else {
+
+           // u_shadow_params_rw[0] = light.shadow_intensity * (light.range * 0.5);
+            u_shadow_attenuation_rw[0] = 1;
+            u_shadow_attenuation_rw[1] = 0;
+            u_shadow_attenuation_rw[2] = 0;
+            u_shadow_attenuation_rw[3] = light.range;
+            
+          }
+          
+
+
+
+          
           this.enable_fw_rendering();
           this.gl.blendEquation(32779);
-          this.use_direct_texture(shadow_map.depth_texture, 4);
+          this.use_direct_texture(shadow_map.color_texture, 0);
+          this.use_direct_texture(shadow_map.depth_texture, 4);          
           render_shadow_receivers(this, light, light_camera, camera, opuque_meshes);
           if (transparent_meshes.length > 0) {
             this.gl.depthFunc(513);
@@ -13209,7 +13302,11 @@ gl_FragColor = vec4((get_shadow_sample()*u_shadow_params_rw.x));
         }
 
 
-        // this.draw_textured_quad(shadow_map.color_texture,0.65,0.5,0.25,0.35);
+        
+
+
+
+      //  this.draw_textured_quad(shadow_map.color_texture,0.65,0.5,0.25,0.35);
 
 
 
@@ -13400,13 +13497,11 @@ gl_FragColor = vec4((get_shadow_sample()*u_shadow_params_rw.x));
         if (mesh.material.flags & 4) {
           if (_this.light_pass_count >= mesh.material.light_pass_limit) continue;
           _this.render_lighting(camera, list.lights, function (update_shading_lights) {
-
             if (_this.use_shader(mesh.material.shader) || update_shading_lights) {
               update_shading_lights = false;
               _this.update_camera_uniforms(camera);
               _this.update_model_uniforms(mesh);
               _this.update_shading_lights(camera, mesh.material.lights_count);
-
 
               if (_this.light_pass_count === 0) {
                 _this.gl.enable(3042);
@@ -13417,11 +13512,9 @@ gl_FragColor = vec4((get_shadow_sample()*u_shadow_params_rw.x));
                 _this.render_mesh(mesh);
               }
               else {
-
                 _this.gl.blendFunc(770, 1);
                 _this.render_mesh(mesh);
               }
-
             }
 
 
@@ -13451,8 +13544,6 @@ gl_FragColor = vec4((get_shadow_sample()*u_shadow_params_rw.x));
 
   proto.validate = function (ecs) {
     ecs.use_component('render_list');
-
-
   };
 
   proto.get_element = function () {

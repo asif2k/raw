@@ -6,8 +6,13 @@
 
   raw.shading.material = raw.define(function (proto, _super) {
     function material(def) {
-      _super.apply(this, arguments);
+    
       def = def || {};
+
+      
+      _super.apply(this, [def]);      
+
+
       this.uuid = raw.guidi();
 
       this.object_material = new Float32Array(16);
@@ -253,7 +258,7 @@
       def = def || {};
       this.cast_shadows =true;
       this.shadow_bias = def.shadow_bias || 0.00000001;
-      this.shadow_opacity = def.shadow_opacity || 0.5;
+      this.shadow_intensity = def.shadow_intensity || this.shadow_intensity;
       this.shadow_map_size = def.shadow_map_size || 1024;
       this.shadow_camera_distance = def.shadow_camera_distance || 30;
       return (this);
@@ -276,7 +281,7 @@
       this.light_type = 0;
       this.enabled = true;
       this.item_type = raw.ITEM_TYPES.LIGHT;
-
+      this.view_angle = Math.PI;
 
       raw.math.vec4.copy(this.ambient, def.ambient || [0.1, 0.1, 0.1, 1.0]);
       raw.math.vec4.copy(this.diffuse, def.diffuse || [0.87, 0.87, 0.87, -1]);
@@ -285,7 +290,7 @@
 
       this.cast_shadows = def.cast_shadows || false;
       this.shadow_bias = def.shadow_bias || 0.00000001;
-      this.shadow_opacity = def.shadow_opacity || 0.5;
+      this.shadow_intensity = def.shadow_intensity || 0.25;
       this.shadow_map_size = def.shadow_map_size || 1024;
       this.shadow_camera_distance = def.shadow_camera_distance || 30;
 
@@ -344,6 +349,7 @@
       def = def || {};
       _super.apply(this, [def]);
 
+      this.shadow_intensity = 0.9;
       this.range = def.range || 20;
 
       if (def.attenuation) {
@@ -377,14 +383,14 @@
     };
 
     proto.set_inner_angle = function (angle) {
-      this.specular[3] = Math.cos(angle) / 2;
+      this.specular[3] = Math.cos(angle / 2);
       return (this);
     };
 
     function spot_light(def) {
       def = def || {};
       _super.apply(this, [def]);
-      this.view_angle = 0
+     
       this.range = def.range || 10;
       if (def.attenuation) {
         this.set_attenuation(this.attenuation[0], this.attenuation[1], this.attenuation[2]);
