@@ -21,7 +21,7 @@ Skeletal animation system with basic inverse kinematics using FABRIK
 ```
 Worker based physics engine with web assembly
 Improve critical systems using web assembly
-Multi threaded partical system
+Multi threaded particle system
 Dynamic sound system using basic sound sampler and synthesizer  
 Webvr support with positional 3d sound
 Tools for world editor and game designer
