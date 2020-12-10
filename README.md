@@ -6,12 +6,13 @@ raw is a small and simple webgl 3d game engine using vanilla javascript and webg
 ```
 Hybrid entity component system
 Transform hierarchy with animation system
-Extendable shader system
-Phong model material system
-Fast and dirty shadow mapping system
+Extendable shader system (highly overridable shader model)
+Phong model material system with light (directional light, spot light , point light)
 Unlimited lights system using forward rendering
-Worker based large terrain system with dynamic level of details and mesh optimization
-Skeletal animation system with basic inverse kinematics using FABRIK
+Fast and dirty shadow mapping system
+Multi threaded based large terrain system with dynamic level of details and mesh optimization
+Skeletal system with dual quaternion skinning
+Basic inverse kinematics using FABRIK
 ```
 
 
@@ -19,7 +20,7 @@ Skeletal animation system with basic inverse kinematics using FABRIK
 
 ## Roadmap
 ```
-Worker based physics engine with web assembly
+Multi threaded physics engine with web assembly
 Improve critical systems using web assembly
 Multi threaded particle system
 Dynamic sound system using basic sound sampler and synthesizer  
@@ -36,7 +37,7 @@ however i use http-serve to test and run demos
 
 
 ## Demos
-
+```
 directional light with shadows and transparent objects
 https://asif2k.github.io/raw/demos/light_shadows.html
 
@@ -52,7 +53,7 @@ https://asif2k.github.io/raw/demos/lights.html
 
 Large terrain with dyamic lod and mesh optimization 
 https://asif2k.github.io/raw/demos/terrain.html
-
+```
 
 
 ## Usage
