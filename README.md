@@ -10,7 +10,7 @@ Extendable shader system (highly overridable shader model)
 Phong model material system with light (directional light, spot light , point light)
 Unlimited lights system using forward rendering
 Fast and dirty shadow mapping system
-Multi threaded based large terrain system with dynamic level of details and mesh optimization
+Multi threaded large terrain system with dynamic level of details and mesh optimization
 Skeletal system with dual quaternion skinning
 Basic inverse kinematics using FABRIK
 ```
@@ -20,7 +20,7 @@ Basic inverse kinematics using FABRIK
 
 ## Roadmap
 ```
-Multi threaded physics engine with web assembly
+Multi threaded physics engine implement using web assembly
 Improve critical systems using web assembly
 Multi threaded particle system
 Dynamic sound system using basic sound sampler and synthesizer  
@@ -87,7 +87,7 @@ https://asif2k.github.io/raw/demos/terrain.html
 
     my_app.create_render_item(new raw.rendering.mesh({
       geometry: raw.geometry.cube({ size: 2 }),
-      material: new raw.shading.material()
+      material: new raw.shading.shaded_material()
     }), function (entity, box) {
         entity.transform.set_position(0, 0, 0);
     });

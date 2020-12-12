@@ -457,7 +457,7 @@ raw.geometry = raw.define(function (proto) {
   }
     
   geometry.create = (function () {
-    var vertex_size = 0;
+    var vertex_size = 0,a=null;
     return function (def) {
 
 
@@ -482,6 +482,12 @@ raw.geometry = raw.define(function (proto) {
 
       if (def.colors) {
         g.add_attribute("a_color_rw", { data: def.colors, item_size: 4 });
+      }
+
+      if (def.attr) {
+        for (a in def.attr) {
+          g.add_attribute("a_color_rw",def.attr[a]);
+        }
       }
 
       raw.geometry.calc_bounds(g, g.attributes.a_position_rw.data, 3);
