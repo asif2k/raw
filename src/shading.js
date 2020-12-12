@@ -34,7 +34,7 @@
       this.wireframe = def.wireframe || false;
       this.set_flag(raw.SHADING.FLAT);
       if (def.flags !== undefined)  this.set_flag(def.flags);
-      this.shader = raw.shading.material.shader;
+      this.shader =def.shader || raw.shading.material.shader;
       this.draw_type = raw.GL_TRIANGLES;
       if (def.draw_type !== undefined) {
         this.draw_type = def.draw_type;

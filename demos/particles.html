@@ -36,6 +36,8 @@
           e.transform.position[1] = -0.1;
           m.material.flags += raw.SHADING.RECEIVE_SHADOW;
       });
+
+      
       app.add_random_grid(60, 6, function (e) {
 
         if (Math.floor(Math.random() * 5) === 2) {
@@ -43,6 +45,7 @@
         }
         e.render_item.items[0].material.flags += raw.SHADING.CAST_SHADOW;
       });
+      
     
       app.mouse_input.mouse_drage = (function (_super_call) {
         return function (dx, dy, e) {
@@ -61,12 +64,39 @@
 
 
       var ps = app.use_system('particle_system', {});
+      ps.step_size = 1 / 30;
 
+      console.log(ps);
 
       setTimeout(function () {
-        
 
-      }, 100);
+        var a = 0;
+        ps.spwan_emitter("default", 1114, 1 / 60, function (emit) {
+          
+          emit.sys.emit_particle(Math.cos(app.timer) * 2, 3, Math.sin(app.timer) * 2, 0,
+            0.03 * (Math.random()-0.5),
+
+            0, 1, 1 / 80);
+
+          emit.sys.emit_particle(Math.cos(app.timer) * -2, 3, Math.sin(app.timer) * -2, 0,
+            0.03 * (Math.random() - 0.5),
+            0, 1, 1 / 80);
+
+
+          emit.sys.emit_particle(Math.cos(app.timer) * -2, 3, Math.sin(app.timer) * 2, 0,
+            0.03 * (Math.random() - 0.5),
+            0, 1, 1 / 80);
+
+
+          emit.sys.emit_particle(Math.cos(app.timer) * 2, 3, Math.sin(app.timer) * -2, 0,
+            0.03 * (Math.random() - 0.5),
+            0, 1, 1 / 80);
+
+        });
+
+       
+
+      }, 500);
 
 
 

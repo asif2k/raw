@@ -210,6 +210,7 @@ raw.ecs = raw.define(function (proto) {
       this.worked_items = 0;
       this.enabled = true;
       this.time_delta = 0;
+      this.ecs = ecs;
     }
     return system;
   });
