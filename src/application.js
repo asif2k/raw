@@ -19,14 +19,14 @@ raw.application['3d'] = raw.define(function (proto, _super) {
           ctx.clearRect(0, 0, app.renderer.debug_canvas.width, app.renderer.debug_canvas.height);          
           ctx.fillStyle = "#fff";
           ctx.font = "12px arial";
-          ctx.fillText(app.fps_timer.fps + ' fps', 1, 10);
+          
           for (i = 0; i < app._systems.length; i++) {
             sys = app._systems[i];
             ctx.fillText(
               sys.name_id + ' ' + sys.frame_time + ' ms /' + sys.worked_items
-              , 1, (i * 20) + 30);
+              , 1, (i * 20) + 10);
           }
-
+          ctx.fillText(app.fps_timer.fps + ' fps', 1, i*20+10);
           app.update_debug_canvas(ctx);
           app.renderer.update_debug_canvas();
         }
@@ -62,7 +62,8 @@ raw.application['3d'] = raw.define(function (proto, _super) {
     def.renderer = def.renderer || {};
     this.renderer = this.use_system('render_system',
       raw.merge_object(def.renderer, {
-        show_debug_canvas: true
+        show_debug_canvas: true,
+        pixel_ratio: 1
       }, true));
 
     def.camera = def.camera || {};

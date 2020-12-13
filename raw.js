@@ -1551,7 +1551,7 @@ raw.assign(raw, {
   GL_RGB5_A1: 32855,
   GL_RGB565: 36194,
   GL_RGBA: 6408,
-  GL_RGBA4: 32854,
+  GL_RGBA4: 32854,  
   GL_SAMPLER_2D: 35678,
   GL_SAMPLER_CUBE: 35680,
   GL_SAMPLES: 32937,
@@ -3664,21 +3664,36 @@ raw.webgl.render_target = raw.define(function (proto) {
     this.depth_texture = this.bind_texture(new raw.webgl.texture(undefined, 6402, 5123, null, false, this.width, this.height), 36096);
     this.depth_texture.parameters[10242] = 33071;
     this.depth_texture.parameters[10243] = 33071;
-
+    return (this)
   };
+  proto.attach_color_buffer = function () {
 
-  proto.attach_depth_buffer = function () {
-    this.depth_buffer = this.gl.createRenderbuffer();
-    this.gl.bindRenderbuffer(36161, this.depth_buffer);
-    this.gl.renderbufferStorage(36161, 33189, this.width, this.height);
+   // this.attach_color();
+
+   
+
+    this.color_buffer = this.gl.createRenderbuffer();
+    this.gl.bindRenderbuffer(36161, this.color_buffer);    
+    this.gl.renderbufferStorage(36161, 32854, this.width, this.height);
+
 
     this.gl.bindFramebuffer(36160, this.frame_buffer);
 
-    this.gl.framebufferRenderbuffer(36160, 36096, 36161, this.depth_buffer);
+    this.gl.framebufferRenderbuffer(36160, 36064, 36161, this.color_buffer);
+    this.check_status();
 
+    this.gl.bindFramebuffer(36160, null);
+    this.gl.bindRenderbuffer(36161, null);
+    return (this)
+  };
+
+  proto.check_status = function () {
+
+    this.valid = false;
     var status = this.gl.checkFramebufferStatus(36160);
     switch (status) {
       case 36053:
+        this.valid = true;
         break;
       case 36054:
         throw ("Incomplete framebuffer: FRAMEBUFFER_INCOMPLETE_ATTACHMENT");
@@ -3696,9 +3711,21 @@ raw.webgl.render_target = raw.define(function (proto) {
         throw ("Incomplete framebuffer: " + status);
     }
 
+  };
+  proto.attach_depth_buffer = function () {
+
+   // return this.attach_depth();
+
+    this.depth_buffer = this.gl.createRenderbuffer();
+    this.gl.bindRenderbuffer(36161, this.depth_buffer);
+    this.gl.renderbufferStorage(36161, 33189, this.width, this.height);
+    this.gl.bindFramebuffer(36160, this.frame_buffer);
+    this.gl.framebufferRenderbuffer(36160, 36096, 36161, this.depth_buffer);
+    this.check_status();
 
     this.gl.bindFramebuffer(36160, null);
     this.gl.bindRenderbuffer(36161, null);
+    return (this)
   };
 
   proto.bind_texture = function (texture, attachment,gl_texture) {
@@ -3722,11 +3749,14 @@ raw.webgl.render_target = raw.define(function (proto) {
 
     this.gl.framebufferTexture2D(36160, attachment, texture.target, texture.gl_texture, 0);
 
+
+    this.check_status();
+/*
     var status = this.gl.checkFramebufferStatus(36160);
     if (status !== 36053) {
       console.error("frame buffer status:" + status.toString());
     }
-
+    */
     this.gl.bindTexture(texture.target, null);
     this.gl.bindFramebuffer(36160, null);
 
@@ -5800,6 +5830,8 @@ if(v_uv_rw.x<0.5){
 else {
 
 gl_FragColor.rgb*=1.5;
+}
+
 }
 
 `);
@@ -12672,7 +12704,7 @@ gl_FragColor = vec4((get_shadow_sample()));
     setup_gl_state(gl);
 
     this.render_target1 = new raw.webgl.render_target(gl, 10, 10);
-    this.render_target1.attach_color(true).attach_depth_buffer();
+    this.render_target1.attach_depth_buffer().attach_color(true);
     this.render_target1.clear_buffer = false;
 
 
@@ -12680,7 +12712,7 @@ gl_FragColor = vec4((get_shadow_sample()));
     this.default_render_target = this.render_target1;
 
     this.render_target2 = new raw.webgl.render_target(gl, 10, 10);
-    this.render_target2.attach_color().attach_depth_buffer();
+    this.render_target2.attach_depth_buffer().attach_color();
     this.render_target2.clear_buffer = false;
 
     this.render_target1.swap = this.render_target2;
@@ -12688,7 +12720,7 @@ gl_FragColor = vec4((get_shadow_sample()));
 
 
 
-    // this.default_render_target = null;
+   //  this.default_render_target = null;
 
     console.log("parameters", parameters);
     if (parameters.show_debug_canvas) {
@@ -13149,7 +13181,6 @@ gl_FragColor = vec4((get_shadow_sample()));
     var i0 = 0, i1 = 0, post_target = null, post_process_input = null;
     return function () {
       i1 = 0;
-
       post_process_input = this.default_render_target.color_texture;
       post_target = this.render_target2;
 
@@ -13222,13 +13253,14 @@ gl_FragColor = vec4((get_shadow_sample()));
       this.texture_slots[0] = -1;
       this.update_textures();
       if (this.default_render_target !== null) this.apply_post_processes();
+      
       if (this.show_debug_canvas) {
           this.gl.enable(3042);
         this.gl.blendFunc(770, 771);
         this.draw_textured_quad(this.debug_canvas, 0, 0, 1, 1);
         this.gl.disable(3042);
       }
-
+      
       if (this.render_version > 999999) {
         this.render_version = 0;
       }
@@ -13911,14 +13943,14 @@ raw.application['3d'] = raw.define(function (proto, _super) {
           ctx.clearRect(0, 0, app.renderer.debug_canvas.width, app.renderer.debug_canvas.height);          
           ctx.fillStyle = "#fff";
           ctx.font = "12px arial";
-          ctx.fillText(app.fps_timer.fps + ' fps', 1, 10);
+          
           for (i = 0; i < app._systems.length; i++) {
             sys = app._systems[i];
             ctx.fillText(
               sys.name_id + ' ' + sys.frame_time + ' ms /' + sys.worked_items
-              , 1, (i * 20) + 30);
+              , 1, (i * 20) + 10);
           }
-
+          ctx.fillText(app.fps_timer.fps + ' fps', 1, i*20+10);
           app.update_debug_canvas(ctx);
           app.renderer.update_debug_canvas();
         }
@@ -13954,7 +13986,8 @@ raw.application['3d'] = raw.define(function (proto, _super) {
     def.renderer = def.renderer || {};
     this.renderer = this.use_system('render_system',
       raw.merge_object(def.renderer, {
-        show_debug_canvas: true
+        show_debug_canvas: true,
+        pixel_ratio: 1
       }, true));
 
     def.camera = def.camera || {};

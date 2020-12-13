@@ -153,7 +153,7 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
     setup_gl_state(gl);
 
     this.render_target1 = new raw.webgl.render_target(gl, 10, 10);
-    this.render_target1.attach_color(true).attach_depth_buffer();
+    this.render_target1.attach_depth_buffer().attach_color(true);
     this.render_target1.clear_buffer = false;
 
 
@@ -161,7 +161,7 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
     this.default_render_target = this.render_target1;
 
     this.render_target2 = new raw.webgl.render_target(gl, 10, 10);
-    this.render_target2.attach_color().attach_depth_buffer();
+    this.render_target2.attach_depth_buffer().attach_color();
     this.render_target2.clear_buffer = false;
 
     this.render_target1.swap = this.render_target2;
@@ -169,7 +169,7 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
 
 
 
-    // this.default_render_target = null;
+   //  this.default_render_target = null;
 
     console.log("parameters", parameters);
     if (parameters.show_debug_canvas) {
@@ -630,7 +630,6 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
     var i0 = 0, i1 = 0, post_target = null, post_process_input = null;
     return function () {
       i1 = 0;
-
       post_process_input = this.default_render_target.color_texture;
       post_target = this.render_target2;
 
@@ -703,13 +702,14 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
       this.texture_slots[0] = -1;
       this.update_textures();
       if (this.default_render_target !== null) this.apply_post_processes();
+      
       if (this.show_debug_canvas) {
           this.gl.enable(raw.GL_BLEND);
         this.gl.blendFunc(raw.GL_SRC_ALPHA, raw.GL_ONE_MINUS_SRC_ALPHA);
         this.draw_textured_quad(this.debug_canvas, 0, 0, 1, 1);
         this.gl.disable(raw.GL_BLEND);
       }
-
+      
       if (this.render_version > 999999) {
         this.render_version = 0;
       }

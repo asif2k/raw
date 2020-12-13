@@ -358,21 +358,36 @@ raw.webgl.render_target = raw.define(function (proto) {
     this.depth_texture = this.bind_texture(new raw.webgl.texture(undefined, raw.GL_DEPTH_COMPONENT, raw.GL_UNSIGNED_SHORT, null, false, this.width, this.height), raw.GL_DEPTH_ATTACHMENT);
     this.depth_texture.parameters[raw.GL_TEXTURE_WRAP_S] = raw.GL_CLAMP_TO_EDGE;
     this.depth_texture.parameters[raw.GL_TEXTURE_WRAP_T] = raw.GL_CLAMP_TO_EDGE;
-
+    return (this)
   };
+  proto.attach_color_buffer = function () {
 
-  proto.attach_depth_buffer = function () {
-    this.depth_buffer = this.gl.createRenderbuffer();
-    this.gl.bindRenderbuffer(raw.GL_RENDERBUFFER, this.depth_buffer);
-    this.gl.renderbufferStorage(raw.GL_RENDERBUFFER, raw.GL_DEPTH_COMPONENT16, this.width, this.height);
+   // this.attach_color();
+
+   
+
+    this.color_buffer = this.gl.createRenderbuffer();
+    this.gl.bindRenderbuffer(raw.GL_RENDERBUFFER, this.color_buffer);    
+    this.gl.renderbufferStorage(raw.GL_RENDERBUFFER, raw.GL_RGBA4, this.width, this.height);
+
 
     this.gl.bindFramebuffer(raw.GL_FRAMEBUFFER, this.frame_buffer);
 
-    this.gl.framebufferRenderbuffer(raw.GL_FRAMEBUFFER, raw.GL_DEPTH_ATTACHMENT, raw.GL_RENDERBUFFER, this.depth_buffer);
+    this.gl.framebufferRenderbuffer(raw.GL_FRAMEBUFFER, raw.GL_COLOR_ATTACHMENT0, raw.GL_RENDERBUFFER, this.color_buffer);
+    this.check_status();
 
+    this.gl.bindFramebuffer(raw.GL_FRAMEBUFFER, null);
+    this.gl.bindRenderbuffer(raw.GL_RENDERBUFFER, null);
+    return (this)
+  };
+
+  proto.check_status = function () {
+
+    this.valid = false;
     var status = this.gl.checkFramebufferStatus(raw.GL_FRAMEBUFFER);
     switch (status) {
       case raw.GL_FRAMEBUFFER_COMPLETE:
+        this.valid = true;
         break;
       case raw.GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT:
         throw ("Incomplete framebuffer: FRAMEBUFFER_INCOMPLETE_ATTACHMENT");
@@ -390,9 +405,21 @@ raw.webgl.render_target = raw.define(function (proto) {
         throw ("Incomplete framebuffer: " + status);
     }
 
+  };
+  proto.attach_depth_buffer = function () {
+
+   // return this.attach_depth();
+
+    this.depth_buffer = this.gl.createRenderbuffer();
+    this.gl.bindRenderbuffer(raw.GL_RENDERBUFFER, this.depth_buffer);
+    this.gl.renderbufferStorage(raw.GL_RENDERBUFFER, raw.GL_DEPTH_COMPONENT16, this.width, this.height);
+    this.gl.bindFramebuffer(raw.GL_FRAMEBUFFER, this.frame_buffer);
+    this.gl.framebufferRenderbuffer(raw.GL_FRAMEBUFFER, raw.GL_DEPTH_ATTACHMENT, raw.GL_RENDERBUFFER, this.depth_buffer);
+    this.check_status();
 
     this.gl.bindFramebuffer(raw.GL_FRAMEBUFFER, null);
     this.gl.bindRenderbuffer(raw.GL_RENDERBUFFER, null);
+    return (this)
   };
 
   proto.bind_texture = function (texture, attachment,gl_texture) {
@@ -416,11 +443,14 @@ raw.webgl.render_target = raw.define(function (proto) {
 
     this.gl.framebufferTexture2D(raw.GL_FRAMEBUFFER, attachment, texture.target, texture.gl_texture, 0);
 
+
+    this.check_status();
+/*
     var status = this.gl.checkFramebufferStatus(raw.GL_FRAMEBUFFER);
     if (status !== raw.GL_FRAMEBUFFER_COMPLETE) {
       console.error("frame buffer status:" + status.toString());
     }
-
+    */
     this.gl.bindTexture(texture.target, null);
     this.gl.bindFramebuffer(raw.GL_FRAMEBUFFER, null);
 
