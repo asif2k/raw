@@ -9,19 +9,19 @@
 </head>
 
 <body>
- 
-  <script >
-    demo_app({ renderer: { pixel_ratio: 1}}, function (app) {
+
+  <script>
+    demo_app({ renderer: { pixel_ratio: 1 } }, function (app) {
 
       var scene_light = app.create_render_item(new raw.shading.light(), function (entity, light) {
         app.attach_component(entity, 'transform_controller', {
-          rotate: [RD(-125), RD(160), 0] 
+          rotate: [RD(-125), RD(160), 0]
         });
         app.attach_component(entity, 'skybox', {
           sun_direction: entity.transform_controller.fw_vector
         });
         light.enable_shadows({
-          shadow_intensity:0.15,
+          shadow_intensity: 0.15,
           shadow_map_size: 2048,
           shadow_camera_distance: 20
         })
@@ -31,22 +31,22 @@
       pg.scale_position_rotation(1, 1, 1, 0, 0, 0, -RD(90), 0, 0);
 
       app.create_render_item(new raw.rendering.mesh({ geometry: pg, material: new raw.shading.shaded_material() }), function (e, m) {
-          m.material.texture = raw.webgl.texture.from_url("res/r4.jpg", true);
-          raw.math.mat3.translate_rotate_scale(m.material.texture_matrix, 0, 0, 32, 32, 0);
-          e.transform.position[1] = -0.1;
-          m.material.flags += raw.SHADING.RECEIVE_SHADOW;
+        m.material.texture = raw.webgl.texture.from_url("res/r4.jpg", true);
+        raw.math.mat3.translate_rotate_scale(m.material.texture_matrix, 0, 0, 32, 32, 0);
+        e.transform.position[1] = -0.1;
+        m.material.flags += raw.SHADING.RECEIVE_SHADOW;
       });
 
-      
-      app.add_random_grid(60, 6, function (e) {
+      /*
+      app.add_random_grid(60, 12, function (e) {
 
         if (Math.floor(Math.random() * 5) === 2) {
-        //  e.render_item.items[0].material.set_tansparency(Math.max(Math.random(), 0.6));
+          //  e.render_item.items[0].material.set_tansparency(Math.max(Math.random(), 0.6));
         }
         e.render_item.items[0].material.flags += raw.SHADING.CAST_SHADOW;
       });
-      
-    
+      */
+
       app.mouse_input.mouse_drage = (function (_super_call) {
         return function (dx, dy, e) {
           if (e.ctrlKey) {
@@ -64,37 +64,82 @@
 
 
       var ps = app.use_system('particle_system', {});
+
+      var s1 = ps.add_sub_system(new raw.ecs.systems.particle_system.point_sprites({
+        MAX_PARTICLES: 5000,
+        params: { MAX_PARTICLES: 5000 },
+        texture: raw.webgl.texture.create_texture_atlas({
+          width: 2048, height: 2048,
+          inputs: [
+            { src: "res/smoke-particle.png?sad", tiles_in_row: 8, dest_x: 0, dest_y: 0, dest_size: 40 },
+            { src: "res/point-particle-sheet.png", tiles_in_row: 5, dest_x: 0, dest_y: 64, dest_size: 32 },
+           
+            {
+              src: "res/flame-sprites.png", tiles_in_row: 5,
+              dest_x: 0, dest_y: 200, dest_size: 64,
+            },
+            {
+              src: "res/blast-sheet2.png", tiles_in_row: 16,
+              dest_x: 0, dest_y: 300, dest_size: 128,
+            },
+            {
+              src: "res/flame-sprites2.png", tiles_in_row: 10,
+              dest_x: 0, dest_y: 500, dest_size: 40
+            },
+
+          ]
+        }),
+        texture_sets: [
+          [0, 0, 1600, 40],
+          [0, 32, 768, 32],
+          [0, 64, 512, 128],
+          [0, 200, 1088, 64],
+          [0, 300, 2048, 128],
+          [0, 500, 2000, 40]
+        ]
+      }));
+
+
       ps.step_size = 1 / 30;
 
+
       console.log(ps);
-
+      console.log(s1);
       setTimeout(function () {
-
-        var a = 0;
-        ps.spwan_emitter("default", 1114, 1 / 60, function (emit) {
-          
-          emit.sys.emit_particle(Math.cos(app.timer) * 2, 3, Math.sin(app.timer) * 2, 0,
-            0.03 * (Math.random()-0.5),
-
-            0, 1, 1 / 80);
-
-          emit.sys.emit_particle(Math.cos(app.timer) * -2, 3, Math.sin(app.timer) * -2, 0,
-            0.03 * (Math.random() - 0.5),
-            0, 1, 1 / 80);
-
-
-          emit.sys.emit_particle(Math.cos(app.timer) * -2, 3, Math.sin(app.timer) * 2, 0,
-            0.03 * (Math.random() - 0.5),
-            0, 1, 1 / 80);
+        
+        for (var e = 0; e < 10; e++) {
+          s1.queue_particle(Math.random() * 15, (Math.random() - 0.5) * 3, 3, (Math.random() - 0.5) * 3,
+            0.001, 0, 0, 1, -1 / 80, 5, 40);
+        }
+        
+        s1.spwan_emitter(0, 1/5, function (emit) {
+          s1.emit_particle(
+            (Math.random() - 0.5) * 4,
+            2, (Math.random() - 0.5) * 4, 0, 0, 0, 1, 1 / 90, 4, 80);
+        });
 
 
-          emit.sys.emit_particle(Math.cos(app.timer) * 2, 3, Math.sin(app.timer) * -2, 0,
-            0.03 * (Math.random() - 0.5),
-            0, 1, 1 / 80);
+
+
+
+        s1.spwan_emitter(0, 1/ 30, function (emit) {          
+          emit.sys.emit_particle((Math.random() - 0.5) * 4, 2, (Math.random() - 0.5) * 4,
+            (Math.random() - 0.5) * 0.005, 0.0035, (Math.random() - 0.5) * 0.005,
+            1, 1 / 80, 3, 40);
+
+
+          emit.sys.emit_particle(0, 2, 0,
+            (Math.random() - 0.5) * 0.005, 0.0095, (Math.random() - 0.5) * 0.005,
+            1, 1 / 130, 3, 40);
+
+          s1.emit_particle(0, 2, 0,
+            (Math.random() - 0.5) * 0.0085, 0.0085, (Math.random() - 0.5) * 0.0085
+            , 1, 1 / 190, 0, 80);
 
         });
 
-       
+
+
 
       }, 500);
 
@@ -107,11 +152,10 @@
       camera.transform.position[1] = 3;
       app.run_debug(function (delta) {
 
+        camera.transform.position[0] = Math.sin(ca * raw.math.DEGTORAD) * 4;
+        camera.transform.position[2] = Math.cos(ca * raw.math.DEGTORAD) * 4;
 
-        camera.transform.position[0] = Math.sin(ca * raw.math.DEGTORAD) * 5;
-        camera.transform.position[2] = Math.cos(ca * raw.math.DEGTORAD) * 5;
-
-        camera.transform_controller.yaw_pitch(0,0.001685);
+        camera.transform_controller.yaw_pitch(0, 0.001685);
 
 
 
@@ -119,13 +163,17 @@
         ca = ca % 360;
 
 
-      },1/60);
+      }, 1 / 60);
     });
 
 
 
 
   </script>
-  
+
+
+
+  <img id="test_tile" style="position:absolute;left:0;pointer-events:none;display:none" />
+
 </body>
 </html>

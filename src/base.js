@@ -408,16 +408,16 @@ raw.create_canvas = function (w, h) {
   temp_canvas.ctx = temp_canvas.getContext('2d');
   temp_canvas.width = w;
   temp_canvas.height = h;
-  temp_canvas.setSize = function (ww, hh) {
+  temp_canvas.set_size = function (ww, hh) {
     this.width = ww;
     this.height = hh;
   };
-  temp_canvas._getImageData = function () {
+  temp_canvas._get_image_data = function () {
     this.imd = this.ctx.getImageData(0, 0, this.width, this.height);
     return this.imd;
   };
 
-  temp_canvas._putImageData = function () {
+  temp_canvas._put_image_data = function () {
     this.ctx.putImageData(this.imd, 0, 0);
   };
 
@@ -578,10 +578,10 @@ raw.load_working_image_data = (function () {
       return;
     }
     img.onload = function () {
-      canv.setSize(w || this.width, h || this.height);
+      canv.set_size(w || this.width, h || this.height);
       canv.ctx.drawImage(this, 0, 0, canv.width, canv.height);
-      if (cb) cb(canv._getImageData().data, canv.width, canv.height, this);
-      canv._putImageData();
+      if (cb) cb(canv._get_image_data().data, canv.width, canv.height, this);
+      canv._put_image_data();
       this.is_busy = false;
       if (parking.size() > 0) {
         process.apply(this, parking.dequeue());

@@ -411,16 +411,16 @@ raw.create_canvas = function (w, h) {
   temp_canvas.ctx = temp_canvas.getContext('2d');
   temp_canvas.width = w;
   temp_canvas.height = h;
-  temp_canvas.setSize = function (ww, hh) {
+  temp_canvas.set_size = function (ww, hh) {
     this.width = ww;
     this.height = hh;
   };
-  temp_canvas._getImageData = function () {
+  temp_canvas._get_image_data = function () {
     this.imd = this.ctx.getImageData(0, 0, this.width, this.height);
     return this.imd;
   };
 
-  temp_canvas._putImageData = function () {
+  temp_canvas._put_image_data = function () {
     this.ctx.putImageData(this.imd, 0, 0);
   };
 
@@ -581,10 +581,10 @@ raw.load_working_image_data = (function () {
       return;
     }
     img.onload = function () {
-      canv.setSize(w || this.width, h || this.height);
+      canv.set_size(w || this.width, h || this.height);
       canv.ctx.drawImage(this, 0, 0, canv.width, canv.height);
-      if (cb) cb(canv._getImageData().data, canv.width, canv.height, this);
-      canv._putImageData();
+      if (cb) cb(canv._get_image_data().data, canv.width, canv.height, this);
+      canv._put_image_data();
       this.is_busy = false;
       if (parking.size() > 0) {
         process.apply(this, parking.dequeue());
@@ -3441,7 +3441,7 @@ raw.webgl.texture = raw.define(function (proto) {
     var canv =raw.create_canvas(1, 1);
     canv.is_busy = false;
     var tile_maker = raw.create_canvas(1, 1);
-    var x, y;
+    var x = 0, y = 0, tx = 0, ty = 0, input = null;
     var pool = [];
     tile_maker.ctx.imageSmoothingEnabled = false;
     function create_tiled_texture(tile_urls, tile_size, width, height, texture) {
@@ -3452,8 +3452,8 @@ raw.webgl.texture = raw.define(function (proto) {
         return texture;
       }
       canv.is_busy = true;
-      canv.setSize(width, height);
-      tile_maker.setSize(tile_size, tile_size);
+      canv.set_size(width, height);
+      tile_maker.set_size(tile_size, tile_size);
 
 
 
@@ -3491,7 +3491,7 @@ raw.webgl.texture = raw.define(function (proto) {
             next(index + 1);
           }
           else {
-            texture.source = canv._getImageData().data;
+            texture.source = canv._get_image_data().data;
             texture.needs_update = true;
             canv.is_busy = false;
             if (pool.length > 0) {
@@ -3506,6 +3506,74 @@ raw.webgl.texture = raw.define(function (proto) {
 
       return texture;
     }
+
+    texture.create_texture_atlas = function (def,texture) {
+      texture = texture || new raw.webgl.texture(false, false, false, null, true, def.width, def.height);
+ 
+      if (canv.is_busy) {
+        pool.push([def,texture]);
+        return texture;
+      }
+      canv.is_busy = true;
+      canv.set_size(def.width, def.height);
+
+      raw.each_index(function (index, next) {
+        input = def.inputs[index];
+
+        raw.load_working_image(input.src, function (img) {
+          if (input.tiles_in_row) {
+            input.tile_size = img.width / input.tiles_in_row;
+            input.tile_width = input.tile_size;
+            input.tile_height = input.tile_size;
+          }
+          tx = 0; ty = 0;
+          canv.ctx.strokeStyle = "green";
+          for (y = 0; y < img.height; y += input.tile_height) {
+            for (x = 0; x < img.width; x += input.tile_width) {
+              canv.ctx.drawImage(img, x, y,
+                input.tile_width,
+                input.tile_height,
+
+                input.dest_x + tx,
+                input.dest_y + ty,
+                input.dest_size,
+                input.dest_size);
+
+              //canv.ctx.strokeRect(input.dest_x + tx, input.dest_y + ty, input.dest_size, input.dest_size);
+
+              tx += input.dest_size;
+              if (input.dest_per_row) {
+                if ((tx / input.dest_size) >= input.dest_per_row) {
+                  tx = 0;
+                  ty += input.dest_size;
+                }
+              }
+            }
+          }
+          if (index < def.inputs.length - 1) {
+            next(index + 1);
+          }
+          else {
+            texture.source = canv._get_image_data().data;
+            texture.needs_update = true;
+            canv.is_busy = false;
+            document.getElementById("test_tile").src = canv.toDataURL("");
+
+            if (pool.length > 0) {
+              create_tiled_texture.apply(raw.webgl.texture, pool.shift());
+            }
+          }
+        });
+
+
+
+      }, 0);
+
+      return texture;
+
+    }
+
+
     return create_tiled_texture;
   })();
 
@@ -9524,31 +9592,99 @@ raw.ecs.register_system("render_item_system", raw.define(function (proto, _super
 
 raw.ecs.register_system("particle_system", raw.define(function (proto, _super) {
 
-  var glsl = raw.webgl.shader.create_chunks_lib(`/*chunk-default-system*/
+  var glsl = raw.webgl.shader.create_chunks_lib(`/*chunk-base-system*/
 <?=chunk('precision')?>
 
 attribute vec4 a_position_rw;
+
+
 uniform mat4 u_view_projection_rw;
 uniform mat4 u_model_rw;
-varying vec4 v_position_rw;
+
+varying float v_life_rw;
+
 
 void vertex(void){  
-  v_position_rw=a_position_rw;
-  gl_Position=u_view_projection_rw*vec4(a_position_rw.xyz,1.0);  
-  gl_PointSize =max(200.0/gl_Position.w,40.0)*v_position_rw.a;
-  //gl_PointSize=30.0;
+ v_life_rw= a_position_rw.w; 
+ gl_Position=u_view_projection_rw*vec4(a_position_rw.xyz,1.0);  
+ gl_PointSize =50.0/gl_Position.w;  
+ 
 }
 <?=chunk('precision')?>
 
-varying vec4 v_position_rw;
-uniform sampler2D u_texture_rw;
+
+varying float v_life_rw;
 void fragment(void) {
-  gl_FragColor =vec4(1.0);
-   gl_FragColor = texture2D(u_texture_rw, gl_PointCoord);
-   gl_FragColor.r=1.0;
-   gl_FragColor.a*=min(v_position_rw.a,0.85);
+  gl_FragColor = vec4(1.0);
+  gl_FragColor.a*=v_life_rw;
 }
-`);
+
+
+
+
+
+
+
+/*chunk-point-sprite-system*/
+<?=chunk('precision')?>
+
+attribute vec4 a_position_rw;
+
+
+uniform vec4 u_texture_sets_rw[10];
+
+uniform mat4 u_view_projection_rw;
+uniform mat4 u_model_rw;
+
+varying float v_life_rw;
+varying float v_life_blend;
+varying vec4 v_texture_set_rw;
+varying vec2 v_texture_coord1_rw;
+varying vec2 v_texture_coord2_rw;
+void vertex(void){  
+ v_life_rw= fract(a_position_rw.w); 
+ int texture_set =int(fract(a_position_rw.w * 256.0)*255.0);
+ float size = (fract(a_position_rw.w * 65536.0)*255.0);
+
+ v_texture_set_rw=u_texture_sets_rw[texture_set];
+
+ gl_Position=u_view_projection_rw*vec4(a_position_rw.xyz,1.0);  
+ gl_PointSize =(size/gl_Position.w)*5.0;  
+
+  float d=v_texture_set_rw.z/v_texture_set_rw.w;
+  
+  float lf=((1.0-v_life_rw)/(1.0/d));
+
+  v_life_blend=fract(lf);
+
+  v_texture_coord1_rw=vec2(floor(lf)*v_texture_set_rw.w,0.0);
+  v_texture_coord2_rw=vec2(v_texture_coord1_rw.x+v_texture_set_rw.w,v_texture_coord1_rw.y);
+
+  // v_texture_coord2_rw=v_texture_coord1_rw;
+
+
+
+}
+<?=chunk('precision')?>
+
+
+
+uniform sampler2D u_texture_rw;
+
+varying float v_life_rw;
+varying float v_life_blend;
+varying vec4 v_texture_set_rw;
+varying vec2 v_texture_coord1_rw;
+varying vec2 v_texture_coord2_rw;
+void fragment(void) {
+  
+  vec2 coords =gl_PointCoord*v_texture_set_rw.w+v_texture_set_rw.xy;
+  gl_FragColor =mix( texture2D(u_texture_rw, coords+v_texture_coord1_rw),
+  texture2D(u_texture_rw, coords+v_texture_coord2_rw),v_life_blend);
+
+
+   
+}`);
 
 
   proto.validate = function (ecs) {
@@ -9564,15 +9700,14 @@ void fragment(void) {
 
   };
 
+
   proto.add_sub_system = (function () {
+    return function (sys) {
 
-
-    return function (name,sys) {
-      this.sub_systems[name] = sys;
-      this._sub_systems.push(sys);
+      this._sub_systems.push(sys);   
       sys.compile_worker();
       sys.attach(this);
-
+      return sys;
     }
 
   })();
@@ -9592,8 +9727,6 @@ void fragment(void) {
         }
       });
 
-      this.add_sub_system("default",new raw.ecs.systems.particle_system.sub_system());
-
     }
 
   })();
@@ -9609,17 +9742,24 @@ void fragment(void) {
       for (i = 0; i < this.emitters.length; i++) {
         emit = this.emitters.data[i];
         if (!emit.active) continue;
-        if (this.ecs.timer - emit.start_time > emit.life) {
-          emit.active = false;
-          this.emitters_slots.push(i);
-          continue;
+        if (emit.life > 0) {
+          if (this.ecs.timer - emit.start_time > emit.life) {
+            emit.active = false;
+            this.emitters_slots.push(i);
+            continue;
+          }
         }
+
 
         if (emit.sys.state === 1) {
           if (this.ecs.timer - emit.last_emit_time > emit.rate) {
             emit.cb(emit);
             emit.e_count++;
             emit.last_emit_time = this.ecs.timer;
+
+            emit.last_emit_time = this.ecs.timer - ((this.ecs.timer - emit.last_emit_time) % emit.rate);
+
+
           }
         }
       }
@@ -9629,6 +9769,7 @@ void fragment(void) {
       for (si = 0; si < this._sub_systems.length; si++) {
         sys = this._sub_systems[si];
         if (sys.state === 1) {
+          sys.step(this.ecs.timer);
           sys.process_data[sys.process_data.length - 1] = this.time_delta / (1 / 60);
 
           sys.process_data[sys.process_data.length - 2] = sys.emit_i;
@@ -9637,7 +9778,7 @@ void fragment(void) {
           sys.emit_i = 0;         
         }
 
-        this.worked_items += (sys.b_count/4);
+        this.worked_items += (sys.b_count / 4);
 
 
       }
@@ -9645,82 +9786,89 @@ void fragment(void) {
   })();
 
  
-  proto.spwan_emitter = function (sys_name, life, rate, cb) {
+  proto.spwan_emitter = function (sys_name, life, rate, cb, param1, param2, param3, param4) {
+    return this._spwan_emitter(this.sub_systems[sys_name], life, rate, cb, param1, param2, param3, param4);
+  };
+
+  proto._spwan_emitter = function (sys, life, rate, cb, param1, param2, param3, param4) {
 
     if (this.emitters_slots.length > 0) {
       emit = this.emitters[this.emitters_slots.pop()];
     }
     else {
-      emit = { active: false };
+      emit = { active: false, params: [undefined, undefined, undefined, undefined] };
       this.emitters.push(emit);
     }
 
     emit.active = true;
-    emit.sys = this.sub_systems[sys_name];
+    emit.sys = sys;
     emit.life = life;
     emit.start_time = this.ecs.timer;
     emit.cb = cb;
     emit.rate = rate;
     emit.e_count = 0;
     emit.last_emit_time = 0;
+    emit.params[0] = param1;
+    emit.params[1] = param2;
+    emit.params[2] = param3;
+    emit.params[3] = param4;
     return emit;
 
   }
+
   function particle_system(def, ecs) {
     _super.apply(this, [def, ecs]);
     this.sub_systems = {}; 
     this._sub_systems = [];
     this.emitters = new raw.array();
     this.emitters_slots = new raw.array();
-    this.emitters_pool = new raw.object_pooler(function (system) {
-      return {};
-    });
+  
     
   }
 
-  particle_system.sub_system = raw.define(function (proto,_super) {
+  particle_system.sub_system = raw.define(function (proto, _super) {
 
     proto.process = function (worker) {
-      var i = 0, oi = 0, ei = 0, ecount = 0, time_delta = 0;
+      var i = 0, ii = 0, oi = 0, ei = 0, ecount = 0, time_delta = 0;
       worker.process = function (buffer) {
 
         process_data = new Float32Array(buffer);
         time_delta = process_data[process_data.length - 1];
         ecount = process_data[process_data.length - 2];
+        time_delta = 2;
         oi = 0; i = 0;
-        while (i < max_particles) {
+        while (i < max_particles * PARTICLE_PACKET_SIZE) {
           if (particles[i] > 0) {
             particles[i] -= (particles[i + 1] * time_delta);
-            particles[i + 2] += particles[i + 5] * time_delta;
-            particles[i + 3] += particles[i + 6] * time_delta;
-            particles[i + 4] += particles[i + 7] * time_delta;
-            output[oi++] = i;
-          }
-          else if (ecount > 0) {
-            ei = ecount - 8;
-            particles[i] = process_data[ei];
-            particles[i + 1] = process_data[ei + 1];
-            particles[i + 2] = process_data[ei + 2];
-            particles[i + 3] = process_data[ei + 3];
-            particles[i + 4] = process_data[ei + 4];
-            particles[i + 5] = process_data[ei + 5];
-            particles[i + 6] = process_data[ei + 6];
-            particles[i + 7] = process_data[ei + 7];
-            ecount -= 8;
+            particles[i] = Math.max(particles[i], 0);
+
+            if (particles[i] > 0) {
+              particles[i + 2] += particles[i + 5] * time_delta;
+              particles[i + 3] += particles[i + 6] * time_delta;
+              particles[i + 4] += particles[i + 7] * time_delta;
+              output[oi++] = i;
+            }
 
           }
-          i += 8;
+          else if (ecount > 0) {
+            ei = ecount - PARTICLE_PACKET_SIZE;
+            ii = PARTICLE_PACKET_SIZE;
+            while (ii > 0) {
+              particles[i + (--ii)] = process_data[ei + ii];
+            }
+            ecount -= PARTICLE_PACKET_SIZE;
+          }
+          i += PARTICLE_PACKET_SIZE;
         }
 
         ei = 0;
-        while (oi > -1) {
-          i = output[oi--];
+        while (oi > 0) {
+          i = output[--oi];
           process_data[ei++] = particles[i + 2];
           process_data[ei++] = particles[i + 3];
-          process_data[ei++] = particles[i + 4];
+          process_data[ei++] = particles[i + 4];          
           process_data[ei++] = particles[i];
         }
-
         process_data[process_data.length - 1] = ei;
         this.postMessage([process_data.buffer], [process_data.buffer]);
 
@@ -9728,7 +9876,6 @@ void fragment(void) {
       worker.set_max_particles(5000);
 
     };
-
     proto.apply_process_data = function (buffer) {
       this.process_data = new Float32Array(buffer);
       this.b_count = this.process_data[this.process_data.length - 1];
@@ -9741,22 +9888,21 @@ void fragment(void) {
     proto.compile_worker = function () {
       if (this.worker) return;
 
-      if (!this.process_data) this.alloc_process_buffer(10000 * 4);
+      if (!this.process_data) this.alloc_process_buffer();
 
       this.worker = new Worker(window.URL.createObjectURL(new Blob([
-        '(' + (function () {
-          
-
-          
+        'var p_count = 0,process_data = null, max_particles = 0, particles = null, output = null,params=' + JSON.stringify(this.params) +';(' + (function () {
           self.set_max_particles = function (num) {
             max_particles = num;
-            particles = new Float32Array(num * 8);
+            particles = new Float32Array(num * params.PARTICLE_PACKET_SIZE);
             output = new Uint32Array(num);
           };
 
           self.onmessage = function (m) { this.process.apply(this, m.data); }
 
-        }).toString() + ')();var p_count = 0,process_data = null, max_particles = 0,particles = null, output = null;self.main=' + this.process.toString() + ';self.main(self);'])));
+          self.set_max_particles(params.MAX_PARTICLES);
+
+        }).toString() + ')(); self.main = ' + this.process.toString() + '; self.main(self); '])));
 
       this.worker.system = this;
       this.worker.onmessage = function (m) {
@@ -9764,25 +9910,27 @@ void fragment(void) {
       };
     };
 
-    var mesh;
     proto.attach = function (system) {
       this.renderer = system.renderer;
       this.webgl_buffer = raw.webgl.buffers.get(this.renderer.gl);
-      
-      mesh = this.create_mesh();
-      mesh.flags += 1;
-      system.sub_systems_meshes.push(mesh);
+      this.system = system;
+      system.sub_systems_meshes.push(this.create_mesh());
 
     };
 
+    var s = 0;
     proto.render_mesh = function (renderer, shader, mesh) {
-      renderer.gl.enable(3042);      
-      renderer.gl.blendFunc(770, 771);
+
+      if (this.b_count < 4) return;
+      renderer.gl.enable(3042);
+      renderer.gl.blendFunc(770, 1);
       renderer.gl.depthMask(false);
       renderer.use_texture(this.texture, 0);
       renderer.gl.bindBuffer(34962, this.webgl_buffer);
       renderer.gl.vertexAttribPointer(0, 4, 5126, false, 16, 0);
-      renderer.gl.drawArrays(0, 0, this.b_count/4);     
+                  
+
+      renderer.gl.drawArrays(0, 0, this.b_count / 4);
 
       renderer.gl.disable(3042);
       renderer.gl.depthMask(true);
@@ -9793,6 +9941,7 @@ void fragment(void) {
       return new raw.rendering.mesh({
         geometry: raw.geometry.create({
           vertex_size: 4,
+          flags: 1,
           vertices: new Float32Array(0)
         }),
         material: this
@@ -9806,35 +9955,273 @@ void fragment(void) {
       ei = this.emit_i;
       this.process_data[ei++] = life;
       this.process_data[ei++] = life_decay;
-      this.process_data[ei++] =x;
-      this.process_data[ei++] =y;
-      this.process_data[ei++] =z;
+      this.process_data[ei++] = x;
+      this.process_data[ei++] = y;
+      this.process_data[ei++] = z;
       this.process_data[ei++] = vx;
       this.process_data[ei++] = vy;
       this.process_data[ei++] = vz;
       this.emit_i = ei;
     }
 
-    proto.alloc_process_buffer = function (size) {
-      this.process_data = new Float32Array(size);
+    proto.alloc_process_buffer = function () {
+      this.process_data = new Float32Array(this.params.MAX_PARTICLES * 4);
+      this.emit_queue = new Uint32Array(this.params.EMIT_QUEUE_SIZE);
+      this.emit_queue_buffer = new Float32Array(this.params.EMIT_QUEUE_SIZE * (this.params.PARTICLE_PACKET_SIZE + 1));
+      ei = 0;
+      while (ei < this.emit_queue.length) {
+        this.emit_queue[ei] = (this.params.PARTICLE_PACKET_SIZE + 1) * (ei++);
+      }
+      this.emit_qi = ei-1;
     };
+
+    proto.spwan_emitter = function (life, rate, cb, param1, param2, param3, param4) {
+      this.system._spwan_emitter(this, life, rate, cb, param1, param2, param3, param4)
+    }
+
+    proto.step = function (timer) {
+
+    }
+
+    var shader = raw.webgl.shader.parse(glsl["base-system"]);
     return function sub_system(def) {
       def = def || {};      
       _super.apply(this, [def]);
-      this.shader = raw.webgl.shader.parse(glsl["default-system"]);
+      this.shader = shader
+      this.name = 'sub_system';
+
+      this.params = raw.merge_object({
+        MAX_PARTICLES: 2000,
+        EMIT_QUEUE_SIZE:300,
+        PARTICLE_PACKET_SIZE: 8
+      }, def.params || {}, true);
+
       this.b_count = 0;
       this.state = 1;
+      this.emit_qi = 0;
       this.emit_i = 0;
-      this.texture = raw.webgl.texture.from_url("res/smoke-particle.png", true);
     }
 
   }, raw.shading.material);
 
 
 
+  particle_system.point_sprites = raw.define(function (proto, _super) {
+
+    proto.process = function (worker) {
+      var i = 0, ii = 0, oi = 0, ei = 0, ecount = 0, time_delta = 0,par_length=0;
+      var uint32 = new Uint32Array(1), uint8 = new Uint8Array(4);
+
+      worker.process = function (buffer) {
+
+        process_data = new Float32Array(buffer);
+        time_delta = process_data[process_data.length - 1];
+        ecount = process_data[process_data.length - 2];
+        time_delta = 2;
+        oi = 0; i = 0;
+        par_length = params.MAX_PARTICLES * params.PARTICLE_PACKET_SIZE;
+        while (i < par_length) {
+          if (particles[i] > 0) {
+            if (particles[i + 1] < 0) {
+              particles[i] += (particles[i + 1] * time_delta);
+              particles[i] = (1 + particles[i]) % 1;
+            }
+            else {
+              particles[i] -= (particles[i + 1] * time_delta);
+              particles[i] = Math.max(particles[i], 0);
+            }
+            
+            if (particles[i] > 0) {
+              particles[i + 2] += particles[i + 5] * time_delta;
+              particles[i + 3] += (particles[i + 6]) * time_delta;
+              particles[i + 4] += particles[i + 7] * time_delta;
+
+             // particles[i + 3] += params.GRAVITY * time_delta;
+
+             // particles[i + 3] += params.GRAVITY;
+              output[oi++] = i;
+            }
+
+          }
+          else if (ecount > 0) {
+            ei = ecount - params.PARTICLE_PACKET_SIZE;
+            ii = params.PARTICLE_PACKET_SIZE;
+            while (ii > 0) {
+              particles[i + (--ii)] = process_data[ei + ii];
+            }
+            ecount -= params.PARTICLE_PACKET_SIZE;
+          }
+          i += params.PARTICLE_PACKET_SIZE;
+        }
+
+        ei = 0;
+        while (oi > 0) {
+          i = output[--oi];
+          process_data[ei++] = particles[i + 2];
+          process_data[ei++] = particles[i + 3];
+          process_data[ei++] = particles[i + 4];
+          uint8[0] = particles[i] * 255; // life
+          uint8[1] = particles[i + 8]; //texture_set;
+          uint8[2] = particles[i + 9]; //size;
+
+          // pack life, texture set and size in one float                    
+          uint32[0] = (uint8[0] << 16) | (uint8[1] << 8) | uint8[2];
+          process_data[ei++] = uint32[0] / (1 << 24);
+
+        }
+        process_data[process_data.length - 1] = ei;
+        this.postMessage([process_data.buffer], [process_data.buffer]);
+
+      }
+
+
+    };
+        
+    var s = 0;
+    proto.render_mesh = function (renderer, shader, mesh) {
+
+      if (this.b_count < 4) return;
+      renderer.gl.enable(3042);
+      renderer.gl.blendFunc(770, 771);
+      renderer.gl.depthMask(false);
+      renderer.use_texture(this.texture, 0);
+      renderer.gl.bindBuffer(34962, this.webgl_buffer);
+      renderer.gl.vertexAttribPointer(0, 4, 5126, false, 16, 0);
 
 
 
+      for (s = 0; s < this.texture_sets.length; s++) {
+        shader.set_uniform('u_texture_sets_rw[' + s + ']', this.texture_sets[s]);
+      }
+
+
+      renderer.gl.drawArrays(0, 0, this.b_count / 4);
+
+      renderer.gl.disable(3042);
+      renderer.gl.depthMask(true);
+
+    };
+
+    proto.create_mesh = function (system) {
+      return new raw.rendering.mesh({
+        geometry: raw.geometry.create({
+          vertex_size: 4,
+          flags: 1,
+          vertices: new Float32Array(0)
+        }),
+        material: this
+      });
+
+
+    };
+
+    var ei = 0;
+
+    proto.queue_particle = function (time, x, y, z, vx, vy, vz, life, life_decay, texture_set, size) {
+      ei = this.emit_queue[this.emit_qi--];
+      this.emit_queue_buffer[ei++] = this.timer + time;
+      this.emit_queue_buffer[ei++] = life;
+      this.emit_queue_buffer[ei++] = life_decay;
+      this.emit_queue_buffer[ei++] = x;
+      this.emit_queue_buffer[ei++] = y;
+      this.emit_queue_buffer[ei++] = z;
+      this.emit_queue_buffer[ei++] = vx;
+      this.emit_queue_buffer[ei++] = vy;
+      this.emit_queue_buffer[ei++] = vz;
+      this.emit_queue_buffer[ei++] = texture_set;
+      this.emit_queue_buffer[ei++] = size;
+    };
+    proto.step = (function () {
+      var i = 0;
+      return function (timer) {
+        i = 0;
+        this.timer = timer;
+        while (i < this.emit_queue_buffer.length) {
+          if (this.emit_queue_buffer[i] > 0) {
+
+            if (timer>=this.emit_queue_buffer[i] ) {
+              ei = 0;
+            //  console.log("i", i + "/" + this.emit_queue_buffer[i]);
+              while (ei < this.params.PARTICLE_PACKET_SIZE) {
+                this.process_data[this.emit_i++] = this.emit_queue_buffer[i + ei + 1];
+                ei++;
+              }
+              this.emit_queue_buffer[i] = 0;
+              this.emit_queue[++this.emit_qi] = i;
+            }
+           
+
+          }
+
+          i += (this.params.PARTICLE_PACKET_SIZE + 1);
+        }
+      }
+    })();
+
+
+    proto.emit_particle = function (x, y, z, vx, vy, vz, life, life_decay, texture_set, size) {
+      ei = this.emit_i;
+      this.process_data[ei++] = life;
+      this.process_data[ei++] = life_decay;
+      this.process_data[ei++] = x;
+      this.process_data[ei++] = y;
+      this.process_data[ei++] = z;
+      this.process_data[ei++] = vx;
+      this.process_data[ei++] = vy;
+      this.process_data[ei++] = vz;
+      this.process_data[ei++] = texture_set;
+      this.process_data[ei++] = size;
+      this.emit_i = ei;
+    }   
+
+    proto.spwan_emitter = function (life, rate, cb, param1, param2, param3, param4) {
+      this.system._spwan_emitter(this, life, rate, cb, param1, param2, param3, param4)
+    }
+   
+
+    var shader = raw.webgl.shader.parse(glsl["point-sprite-system"]);
+    return function point_sprite_sub_system(def) {
+      def = def || {};
+      _super.apply(this, [def]);
+      this.shader = shader
+
+      this.texture_sets = [];
+      this.params.PARTICLE_PACKET_SIZE = 10;
+
+      this.params.GRAVITY = this.params.GRAVITY || (-0.0025);
+
+
+      if (def.texture) {
+        this.texture = def.texture;
+        if (def.texture_sets) {
+
+          var ww = def.texture.width;
+          var hh = def.texture.height;
+
+          var ratio = 1;
+          if (ww > hh) {
+            ratio = (ww / hh);
+          }
+          console.log(ratio);
+          def.texture_sets.for_each(function (tx, i, self) {
+            tx = new Float32Array(tx);
+            tx[0] /= ww;
+            tx[1] /= hh;
+            tx[2] /= ww;
+            tx[3] /= hh;
+           
+            self.texture_sets.push(tx);
+          }, this);
+        }
+
+
+      }
+      this.set_tansparency(0.99);
+
+
+    }
+
+  }, particle_system.sub_system);
 
 
 
