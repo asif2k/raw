@@ -64,9 +64,9 @@ Large terrain with dyamic lod and mesh optimization
 https://asif2k.github.io/raw/demos/terrain.html
 
 
-Particle system basic demo
+Particle system  demo
 
-https://asif2k.github.io/raw/demos/particles_advanced.html
+https://asif2k.github.io/raw/demos/particles.html
 
 
 
