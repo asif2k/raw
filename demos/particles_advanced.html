@@ -1,0 +1,246 @@
+﻿<!DOCTYPE html>
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <title>raw</title>
+  <script src="../raw.js?ewerrhrtr5tt5trwj"></script>
+  <script src="demo.js"></script>
+</head>
+
+<body style="overflow:hidden">
+
+  <script>
+    demo_app({ renderer: { pixel_ratio: 1 } }, function (app) {
+
+      var scene_light = app.create_render_item(new raw.shading.light(), function (entity, light) {
+        app.attach_component(entity, 'transform_controller', {
+          rotate: [RD(-125), RD(160), 0]
+        });
+        app.attach_component(entity, 'skybox', {
+          sun_direction: entity.transform_controller.fw_vector
+        });
+        light.enable_shadows({
+          shadow_intensity: 0.15,
+          shadow_map_size: 2048,
+          shadow_camera_distance: 20
+        })
+      });
+
+      var pg = raw.geometry.plane({ width: 300, height: 300, divs: 8 });
+      pg.scale_position_rotation(1, 1, 1, 0, 0, 0, -RD(90), 0, 0);
+
+      app.create_render_item(new raw.rendering.mesh({ geometry: pg, material: new raw.shading.shaded_material() }), function (e, m) {
+        m.material.texture = raw.webgl.texture.from_url("res/r4.jpg", true);
+        raw.math.mat3.translate_rotate_scale(m.material.texture_matrix, 0, 0, 32, 32, 0);
+        e.transform.position[1] = -0.1;
+        m.material.flags += raw.SHADING.RECEIVE_SHADOW;
+      });
+
+      app.mouse_input.mouse_drage = (function (_super_call) {
+        return function (dx, dy, e) {
+          if (e.ctrlKey) {
+            scene_light.transform_controller.yaw_pitch(-dy * 0.005, dx * 0.005);
+            if (scene_light.transform_controller.rotate[0] > 0) {
+              scene_light.transform_controller.rotate[0] = 0;
+            }
+          }
+          else {
+            _super_call.apply(this, [dx, dy, e]);
+          }
+        }
+      })(app.mouse_input.mouse_drage);
+
+
+
+      var ps = app.use_system('particle_system', {});
+
+
+      ps.step_size = 1 / 30;
+
+
+      var sys = ps.add_sub_system(new raw.ecs.systems.particle_system.quad_sprites({
+        params: {
+          MAX_PARTICLES: 7000
+        },
+        texture: raw.webgl.texture.create_texture_atlas({
+          width: 2048, height: 2048,
+          inputs: [
+            { src: "res/point-particle-sheet.png", tiles_in_row: 5, dest_x: 0, dest_y: 0, dest_size: 64 },
+            { src: "res/flame-sprites.png", tiles_in_row: 5, dest_x: 0, dest_y: 64, dest_size: 64 },
+            { src: "res/172607_fire-sprite-png.png", tiles_in_row: 5, dest_x: 0, dest_y: 200, dest_size: 64 },
+          ]
+        }),
+        texture_sets: [
+          [0, 0, 1920, 64],
+          [0, 64, 64*20, 64],
+          [0, 200, 64 * 6, 64],
+          [64 * 7, 100, 64 * 3, 64],
+        ],
+
+        styles: [
+          {            
+            gradiants: [
+              [0, 255, 0,255, 255],
+              [1, 0, 255, 0, 0],
+            ],
+            scales: [
+              [0, 1],
+              [1, 0.2]
+
+            ]
+          },
+          {
+            texture_set: 2,
+            gradiants: [
+              [0, 255, 255, 255, 255],
+              [1, 255, 255, 255, 255],
+            ],
+          },
+          {
+            texture_set: 1,            
+            gradiants: [
+              [0, 255, 0, 0, 255],
+              [1, 255, 241, 24, 255],
+            ],
+           
+          },
+          {
+            texture_set: 0,
+            gradiants: [
+              [0, 255, 255, 255, 255],
+              [1, 255, 255, 255, 255],
+            ],
+          },
+        ]
+      }));
+
+      setTimeout(function () {
+        var i = 0;
+
+        for (i = 0; i < 15; i++) {
+          sys.queue_particle(
+            i / 5,
+            -2 / 2,
+            (Math.random() - 0.5) * 15,
+            2,
+            (Math.random() - 0.5) * 15,
+            0, 0, 0,
+            0.12, 0.12, 0.12,
+            0,
+            0,
+            0,
+            1,
+            1
+          );
+        }
+
+        sys.spwan_emitter(0, 1 / 25, function (emit) {
+          for (i = 0; i < 5; i++) {
+            sys.queue_particle(
+              i/10,
+              1.015,
+              (Math.random() - 0.5) *2,
+              3,
+              0,
+
+
+              (Math.random() - 0.5) * 1,
+              2,
+              (Math.random() - 0.5) * 1,
+              0.12, 0.12, 0.12,
+              0,
+              0,
+              0,
+            1,
+              2
+            );
+          }
+
+
+          for (i = 0; i < 25; i++) {
+            sys.queue_particle(
+              i / 10,
+              0.55,
+              2,
+              1.2,
+              2,
+
+
+              (Math.random() - 0.5) * 3,
+              4,
+              (Math.random() - 0.5) * 3,
+              0.12, 0.12, 0.12,
+              -2.84,
+              0,
+              0,
+              0.124,
+              0
+            );
+          }
+
+        });
+
+        sys.spwan_emitter(0, 1 , function (emit) {
+          for (i = 0; i < 5; i++) {
+            sys.queue_particle(
+              i*2 ,
+             0.5,
+              (Math.random() - 0.5) * 15,
+              2,
+              (Math.random() - 0.5) * 15,
+
+
+              0,0,0,
+              0.12, 0.12, 0.12,
+              0,
+              0,
+              0,
+             2,
+              3
+            );
+          }
+
+        });
+
+      }, 200);
+
+
+
+      console.log(sys);
+      var camera = app.camera;
+      var ca = 0;
+      camera.transform.position[1] = 6;
+
+      var rot = 0;
+      app.run_debug(function (delta) {
+
+
+        camera.transform.position[0] = Math.sin(ca * raw.math.DEGTORAD) * 8;
+        camera.transform.position[2] = Math.cos(ca * raw.math.DEGTORAD) *8;
+        
+        camera.transform_controller.set_rotate(-0.5,rot,0);
+
+
+        rot += 0.0015;
+
+        ca += 0.0935;
+        ca = ca % 360;
+
+
+      }, 1 / 60);
+    });
+
+
+
+
+  </script>
+
+
+
+
+
+  <img id="test_tile" height="100%" style="position:absolute;left:0;pointer-events:none;display1:none" />
+
+</body>
+</html>

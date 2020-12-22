@@ -541,6 +541,12 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
     if (this.active_shader.camera_version === camera.version) return false;
     this.active_shader.camera_version = camera.version;
     this.active_shader.set_uniform("u_view_projection_rw", camera.view_projection);
+    this.active_shader.set_uniform("u_view_rw", camera.view_inverse);
+    this.active_shader.set_uniform("u_view_fw", camera.fw_vector);
+    this.active_shader.set_uniform("u_view_sd", camera.sd_vector);
+    this.active_shader.set_uniform("u_view_up", camera.up_vector);
+
+
     return (true);
   };
 
@@ -609,7 +615,7 @@ raw.ecs.register_system("render_system", raw.define(function (proto, _super) {
       this.use_geometry_attribute(0, att);
       this.use_shader(shdr);
       shdr.set_uniform("u_pos_size", u_pos_size);
-      //this.gl.disable(raw.GL_DEPTH_TEST);
+      this.gl.disable(raw.GL_DEPTH_TEST);
       this.gl.disable(raw.GL_CULL_FACE);
       this.use_texture(texture, 0);
       this.gl.drawArrays(4, 0, 6);

@@ -1673,6 +1673,11 @@ raw.math.vec2 = raw.create_float32(2);
 raw.math.vec3 = raw.create_float32(3);
 raw.math.vec4 = raw.create_float32(4);
 
+raw.math.little_endian = (function() {
+  var uint8_array = new Uint8Array([0xAA, 0xBB]);
+  var uint16_array = new Uint16Array(uint8_array.buffer);
+  return uint16_array[0] === 0xBBAA;
+})();
 raw.math.quat = raw.create_float32(4, function (out) {
   out[3] = 1;
   return out;
@@ -4368,7 +4373,7 @@ raw.geometry = raw.define(function (proto) {
     attribute.array = attribute.array || null;
     attribute.data_offset = attribute.data_offset || 0;
     attribute.data_length = attribute.data_length || 0;
-
+    attribute.buffer_type = attribute.buffer_type || 35044;
     attribute.name = name;
     attribute.geo_id = this.uuid;
     if (attribute.data !== null) {
@@ -4821,7 +4826,7 @@ raw.geometry = raw.define(function (proto) {
 
       if (def.attr) {
         for (a in def.attr) {
-          g.add_attribute("a_color_rw",def.attr[a]);
+          g.add_attribute(a,def.attr[a]);
         }
       }
 
@@ -9660,7 +9665,7 @@ void vertex(void){
   v_texture_coord1_rw=vec2(floor(lf)*v_texture_set_rw.w,0.0);
   v_texture_coord2_rw=vec2(v_texture_coord1_rw.x+v_texture_set_rw.w,v_texture_coord1_rw.y);
 
-  // v_texture_coord2_rw=v_texture_coord1_rw;
+  v_texture_coord2_rw=v_texture_coord1_rw;
 
 
 
@@ -9684,6 +9689,120 @@ void fragment(void) {
 
 
    
+}
+
+
+
+/*chunk-quad-sprite-system*/
+<?=chunk('precision')?>
+
+attribute vec3 a_position_rw;
+
+attribute vec4 a_particle_pos_rw;
+attribute vec4 a_particle_info_rw;
+
+uniform mat4 u_view_projection_rw;
+
+uniform vec3 u_view_sd;
+uniform vec3 u_view_up;
+
+uniform vec4 u_texture_sets_rw[10];
+varying vec4 v_particle_color_rw;
+varying vec3 v_texture_mode_rw;
+varying vec4 v_texture_set_rw;
+varying float v_particle_life_rw;
+varying float v_texture_blend_rw;
+varying vec2 v_texture_coord0_rw;
+varying vec2 v_texture_coord1_rw;
+varying vec2 v_texture_coord2_rw;
+
+void vertex(void){  
+ 
+ float rotation=a_particle_info_rw[1];
+ float scale=a_particle_info_rw[2];
+
+ v_particle_life_rw=a_particle_info_rw[0];
+
+ gl_Position.x = (a_position_rw.x * cos(rotation) - a_position_rw.y * sin(rotation));
+ gl_Position.y = (a_position_rw.x * sin(rotation) + a_position_rw.y * cos(rotation));
+ gl_Position.w=1.0;
+
+
+ v_particle_color_rw.r= fract(a_particle_pos_rw.w); 
+ v_particle_color_rw.g= fract(a_particle_pos_rw.w * 256.0);
+ v_particle_color_rw.b= fract(a_particle_pos_rw.w * 65536.0);  
+ v_particle_color_rw.a=fract(a_particle_info_rw[3]);
+
+ int texture_set =int(fract(a_particle_info_rw[3] * 256.0)*256.0)-1;
+ v_texture_mode_rw.b=1.0;
+
+
+
+
+ if(texture_set>-1){
+  int texture_alpha =int(fract(a_particle_info_rw[3] * 65536.0)*256.0)-1;
+
+ v_texture_mode_rw.b=0.0;
+ if(texture_alpha>-1){
+  v_texture_mode_rw.r=1.0;
+ }
+ else {
+  v_texture_mode_rw.g=1.0;
+ }
+
+  v_texture_set_rw=u_texture_sets_rw[texture_set];
+  float d=v_texture_set_rw.z/v_texture_set_rw.w;
+  
+  float lf=((1.0-v_particle_life_rw)/(1.0/d));
+
+  v_texture_blend_rw=fract(lf);
+
+  
+  v_particle_color_rw.r=1.0;
+  
+
+  v_texture_coord1_rw=vec2(floor(lf)*v_texture_set_rw.w,0.0);
+  v_texture_coord2_rw=vec2(v_texture_coord1_rw.x+v_texture_set_rw.w,0.0);
+   
+   v_texture_coord2_rw=v_texture_coord1_rw;
+  }
+
+ 
+
+  v_texture_coord0_rw=a_position_rw.xy+0.5;
+  v_texture_coord0_rw.y=1.0-v_texture_coord0_rw.y;
+
+ gl_Position.xyz = a_particle_pos_rw.xyz + u_view_sd * gl_Position.x * scale + u_view_up * gl_Position.y * scale;
+ gl_Position=u_view_projection_rw*gl_Position;
+
+ 
+}
+<?=chunk('precision')?>
+
+
+uniform sampler2D u_texture_rw;
+
+varying float v_particle_life_rw;
+varying vec3 v_texture_mode_rw;
+
+varying vec4 v_particle_color_rw;
+varying vec4 v_texture_set_rw;
+varying float v_texture_blend_rw;
+
+varying vec2 v_texture_coord0_rw;
+varying vec2 v_texture_coord1_rw;
+varying vec2 v_texture_coord2_rw;
+void fragment(void) {
+
+  vec2 coords =v_texture_coord0_rw*v_texture_set_rw.w+v_texture_set_rw.xy;
+  vec4 color =mix( texture2D(u_texture_rw, coords+v_texture_coord1_rw),
+  texture2D(u_texture_rw, coords+v_texture_coord2_rw),v_texture_blend_rw);
+  
+
+  gl_FragColor =
+  (v_particle_color_rw*(color.a*v_texture_mode_rw.r))+
+  (v_particle_color_rw*color*v_texture_mode_rw.g)+
+  (v_particle_color_rw*v_texture_mode_rw.b);
 }`);
 
 
@@ -9735,10 +9854,8 @@ void fragment(void) {
 
   var emit;
   proto.step = (function () {
-    var si = 0, sys = null,  i = 0;
+    var si = 0, sys = null, i = 0;
     return function () {
-
-
       for (i = 0; i < this.emitters.length; i++) {
         emit = this.emitters.data[i];
         if (!emit.active) continue;
@@ -9770,9 +9887,7 @@ void fragment(void) {
         sys = this._sub_systems[si];
         if (sys.state === 1) {
           sys.step(this.ecs.timer);
-          sys.process_data[sys.process_data.length - 1] = this.time_delta / (1 / 60);
-
-          sys.process_data[sys.process_data.length - 2] = sys.emit_i;
+          sys.process_data[sys.process_data.length - 1] = sys.emit_i;
           sys.worker.postMessage([sys.process_data.buffer], [sys.process_data.buffer]);
           sys.state = 2;
           sys.emit_i = 0;         
@@ -9782,6 +9897,7 @@ void fragment(void) {
 
 
       }
+
     }
   })();
 
@@ -9829,7 +9945,7 @@ void fragment(void) {
   particle_system.sub_system = raw.define(function (proto, _super) {
 
     proto.process = function (worker) {
-      var i = 0, ii = 0, oi = 0, ei = 0, ecount = 0, time_delta = 0;
+      var i = 0, ii = 0, oi = 0, ei = 0, ecount = 0;
       worker.process = function (buffer) {
 
         process_data = new Float32Array(buffer);
@@ -9891,16 +10007,34 @@ void fragment(void) {
       if (!this.process_data) this.alloc_process_buffer();
 
       this.worker = new Worker(window.URL.createObjectURL(new Blob([
-        'var p_count = 0,process_data = null, max_particles = 0, particles = null, output = null,params=' + JSON.stringify(this.params) +';(' + (function () {
+        'var p_count = 0,process_data = null, max_particles = 0, time_delta = 0,timer=0,last_timer=0, particles = null, output = null,params=' + JSON.stringify(this.params) +';(' + (function () {
           self.set_max_particles = function (num) {
             max_particles = num;
             particles = new Float32Array(num * params.PARTICLE_PACKET_SIZE);
             output = new Uint32Array(num);
           };
 
-          self.onmessage = function (m) { this.process.apply(this, m.data); }
+          self[0] = function (op) {
 
-          self.set_max_particles(params.MAX_PARTICLES);
+          };
+          self.onmessage = function (m) {
+            // console.log(m.data.length);
+            if (m.data.length > 1) {
+              timer = Date.now();
+              this[m.data[0]].apply(this, m.data);
+            }
+            else {
+              timer = Date.now();
+              // if (last_timer === 0) last_timer = timer;
+              time_delta = (timer - last_timer) * 0.001;
+              this.process.apply(this, m.data);
+              last_timer = timer - (time_delta % 16.66666);
+            }
+
+          };
+
+
+         
 
         }).toString() + ')(); self.main = ' + this.process.toString() + '; self.main(self); '])));
 
@@ -9908,6 +10042,9 @@ void fragment(void) {
       this.worker.onmessage = function (m) {
         this.system.apply_process_data(m.data[0]);
       };
+      
+
+
     };
 
     proto.attach = function (system) {
@@ -9991,8 +10128,8 @@ void fragment(void) {
       this.name = 'sub_system';
 
       this.params = raw.merge_object({
-        MAX_PARTICLES: 2000,
-        EMIT_QUEUE_SIZE:300,
+        MAX_PARTICLES: 5000,
+        EMIT_QUEUE_SIZE:1000,
         PARTICLE_PACKET_SIZE: 8
       }, def.params || {}, true);
 
@@ -10009,14 +10146,13 @@ void fragment(void) {
   particle_system.point_sprites = raw.define(function (proto, _super) {
 
     proto.process = function (worker) {
-      var i = 0, ii = 0, oi = 0, ei = 0, ecount = 0, time_delta = 0,par_length=0;
+      var i = 0, ii = 0, oi = 0, ei = 0, ecount = 0, par_length=0;
       var uint32 = new Uint32Array(1), uint8 = new Uint8Array(4);
-
+      self.set_max_particles(params.MAX_PARTICLES);
       worker.process = function (buffer) {
 
         process_data = new Float32Array(buffer);
-        time_delta = process_data[process_data.length - 1];
-        ecount = process_data[process_data.length - 2];
+        ecount = process_data[process_data.length - 1];
         time_delta = 2;
         oi = 0; i = 0;
         par_length = params.MAX_PARTICLES * params.PARTICLE_PACKET_SIZE;
@@ -10032,11 +10168,14 @@ void fragment(void) {
             }
             
             if (particles[i] > 0) {
+
+              particles[i + 6] += (( particles[i + 10]) * time_delta);
+
               particles[i + 2] += particles[i + 5] * time_delta;
               particles[i + 3] += (particles[i + 6]) * time_delta;
               particles[i + 4] += particles[i + 7] * time_delta;
 
-             // particles[i + 3] += params.GRAVITY * time_delta;
+             
 
              // particles[i + 3] += params.GRAVITY;
               output[oi++] = i;
@@ -10117,10 +10256,12 @@ void fragment(void) {
 
     var ei = 0;
 
-    proto.queue_particle = function (time, x, y, z, vx, vy, vz, life, life_decay, texture_set, size) {
+    proto.queue_particle = function (time, x, y, z, vx, vy, vz, gravity, life_decay, texture_set, size) {
+
+      if (this.emit_qi < 1) return;
       ei = this.emit_queue[this.emit_qi--];
       this.emit_queue_buffer[ei++] = this.timer + time;
-      this.emit_queue_buffer[ei++] = life;
+      this.emit_queue_buffer[ei++] = 1;
       this.emit_queue_buffer[ei++] = life_decay;
       this.emit_queue_buffer[ei++] = x;
       this.emit_queue_buffer[ei++] = y;
@@ -10130,6 +10271,7 @@ void fragment(void) {
       this.emit_queue_buffer[ei++] = vz;
       this.emit_queue_buffer[ei++] = texture_set;
       this.emit_queue_buffer[ei++] = size;
+      this.emit_queue_buffer[ei++] = gravity;
     };
     proto.step = (function () {
       var i = 0;
@@ -10140,8 +10282,7 @@ void fragment(void) {
           if (this.emit_queue_buffer[i] > 0) {
 
             if (timer>=this.emit_queue_buffer[i] ) {
-              ei = 0;
-            //  console.log("i", i + "/" + this.emit_queue_buffer[i]);
+              ei = 0;          
               while (ei < this.params.PARTICLE_PACKET_SIZE) {
                 this.process_data[this.emit_i++] = this.emit_queue_buffer[i + ei + 1];
                 ei++;
@@ -10159,9 +10300,9 @@ void fragment(void) {
     })();
 
 
-    proto.emit_particle = function (x, y, z, vx, vy, vz, life, life_decay, texture_set, size) {
+    proto.emit_particle = function (x, y, z, vx, vy, vz, gravity, life_decay, texture_set, size) {
       ei = this.emit_i;
-      this.process_data[ei++] = life;
+      this.process_data[ei++] = 1;
       this.process_data[ei++] = life_decay;
       this.process_data[ei++] = x;
       this.process_data[ei++] = y;
@@ -10171,11 +10312,12 @@ void fragment(void) {
       this.process_data[ei++] = vz;
       this.process_data[ei++] = texture_set;
       this.process_data[ei++] = size;
+      this.process_data[ei++] = gravity;
       this.emit_i = ei;
     }   
 
     proto.spwan_emitter = function (life, rate, cb, param1, param2, param3, param4) {
-      this.system._spwan_emitter(this, life, rate, cb, param1, param2, param3, param4)
+      return this.system._spwan_emitter(this, life, rate, cb, param1, param2, param3, param4);
     }
    
 
@@ -10186,9 +10328,9 @@ void fragment(void) {
       this.shader = shader
 
       this.texture_sets = [];
-      this.params.PARTICLE_PACKET_SIZE = 10;
+      this.params.PARTICLE_PACKET_SIZE = 11;
 
-      this.params.GRAVITY = this.params.GRAVITY || (-0.0025);
+      this.params.GRAVITY = this.params.GRAVITY || (0.0025);
 
 
       if (def.texture) {
@@ -10223,6 +10365,374 @@ void fragment(void) {
 
   }, particle_system.sub_system);
 
+
+
+
+  particle_system.quad_sprites = raw.define(function (proto, _super) {
+
+    proto.process = function (worker) {
+      var i = 0, ii = 0, oi = 0, ei = 0, ecount = 0, style = null, life_time = 0, gf1 = 0, gf2 = 0;
+      var uint32 = new Uint32Array(1), uint8 = new Uint8Array(4);
+
+      
+      self.set_max_particles(params.MAX_PARTICLES);
+      var par_length = params.MAX_PARTICLES * params.PARTICLE_PACKET_SIZE;
+      var info_offset = params.MAX_PARTICLES * 4;
+
+      worker[1000] = function (op, styles) {
+        worker.styles = styles;
+        console.log("styles", styles);
+      };
+
+      worker.process = function (buffer) {
+
+        process_data = new Float32Array(buffer);
+        ecount = process_data[process_data.length - 1];
+
+
+        oi = 0; i = 0;
+        
+        while (i < par_length) {
+          if (particles[i] > 0) {
+            if (particles[i + 1] < 0) {
+              particles[i] += (particles[i + 1] * time_delta);
+              particles[i] = (1 + particles[i]) % 1;
+            }
+            else {
+              particles[i] -= (particles[i + 1] * time_delta);
+              particles[i] = Math.max(particles[i], 0);
+            }
+
+            if (particles[i] > 0) {
+              output[oi++] = i;
+            }
+
+          }
+          else if (ecount > 0) {
+            ei = ecount - params.PARTICLE_PACKET_SIZE;
+            ii = params.PARTICLE_PACKET_SIZE;
+            while (ii > 0) {
+              particles[i + (--ii)] = process_data[ei + ii];
+            }
+            ecount -= params.PARTICLE_PACKET_SIZE;
+          }
+          i += params.PARTICLE_PACKET_SIZE;
+        }
+
+        ei = 0;
+        while (oi > 0) {
+          i = output[--oi];
+          style = this.styles[particles[i + 15]];
+          life_time = (1 - particles[i]);
+
+          particles[i + 5] += (particles[i + 8] * time_delta);
+          particles[i + 6] += (particles[i + 9] * time_delta);
+          particles[i + 7] += (particles[i + 10] * time_delta);
+
+          particles[i + 6] += (particles[i + 11] * time_delta);
+          
+
+          particles[i + 2] += (particles[i + 5] * time_delta);
+          particles[i + 3] += (particles[i + 6] * time_delta);
+          particles[i + 4] += (particles[i + 7] * time_delta);
+
+          particles[i + 12] += ((particles[i + 13] * time_delta) * particles[i]);
+
+
+          process_data[ei] = particles[i + 2];
+          process_data[ei + 1] = particles[i + 3];
+          process_data[ei + 2] = particles[i + 4];
+
+          gf1 = 0;
+          gf2 = 1;
+
+          uint8[0] = 255;
+          uint8[1] = 255;
+          uint8[2] = 255;
+
+
+          if (style.gradiants) {
+            uint8[0] = style.gradiants[gf1][1] + (style.gradiants[gf2][1] - style.gradiants[gf1][1]) * life_time;
+            uint8[1] = style.gradiants[gf1][2] + (style.gradiants[gf2][2] - style.gradiants[gf1][2]) * life_time;
+            uint8[2] = style.gradiants[gf1][3] + (style.gradiants[gf2][3] - style.gradiants[gf1][3]) * life_time;
+            uint8[3] = style.gradiants[gf1][4] + (style.gradiants[gf2][4] - style.gradiants[gf1][4]) * life_time;
+           // process_data[info_offset + ei] /= 255;
+          }
+          else {
+            uint8[3] = particles[i] * 255;
+           // process_data[info_offset + ei] = particles[i];
+
+          }
+
+
+          // pack rgb in one float                    
+          uint32[0] =  (uint8[0] << 16) | (uint8[1] << 8) | uint8[2];
+          process_data[ei + 3] = uint32[0] / (1 << 24);
+
+          
+          process_data[info_offset + ei] = particles[i];
+
+          uint8[1] = 0;
+          uint8[2] = 0;
+
+          if (style.texture_set > -1) {
+            uint8[1] = style.texture_set + 1;
+          }
+          if (style.texture_alpha > -1) {
+            uint8[2] = style.texture_alpha + 1;
+          }
+
+           // pack alpha and flags in one float    
+          uint32[0] = (uint8[3] << 16) | (uint8[1] << 8) | uint8[2];
+          process_data[info_offset + ei + 3] = uint32[0] / (1 << 24);
+
+
+
+          process_data[info_offset + ei + 1] = particles[i + 12];
+          process_data[info_offset + ei + 2] = particles[i + 14];
+          if (style.scales) {
+            process_data[info_offset + ei + 2] *= (style.scales[gf1][1] + (style.scales[gf2][1] - style.scales[gf1][1]) * life_time);
+
+          }
+
+
+          ei += 4;
+
+        }
+
+
+
+        process_data[process_data.length - 1] = ei;
+        this.postMessage([process_data.buffer], [process_data.buffer]);
+
+      }
+
+
+    };
+
+    proto.attach = function (system) {
+      this.renderer = system.renderer;
+      this.system = system;
+      system.sub_systems_meshes.push(this.create_mesh());
+      this.mesh.geometry.attributes.a_particle_pos_rw.buffer = this.pos_buffer = raw.webgl.buffers.get(this.renderer.gl);
+      this.mesh.geometry.attributes.a_particle_info_rw.buffer = this.info_buffer = raw.webgl.buffers.get(this.renderer.gl);
+      this.update_styles();
+    };
+    proto.alloc_process_buffer = function () {
+      this.process_data = new Float32Array(this.params.MAX_PARTICLES * 8);
+      this.info_data = new Float32Array(this.process_data.buffer, (this.params.MAX_PARTICLES * 4 * 4), this.params.MAX_PARTICLES * 4);
+
+
+
+      this.emit_queue = new Uint32Array(this.params.EMIT_QUEUE_SIZE);
+      this.emit_queue_buffer = new Float32Array(this.params.EMIT_QUEUE_SIZE * (this.params.PARTICLE_PACKET_SIZE + 1));
+      ei = 0;
+      while (ei < this.emit_queue.length) {
+        this.emit_queue[ei] = (this.params.PARTICLE_PACKET_SIZE + 1) * (ei++);
+      }
+      this.emit_qi = ei - 1;
+    };
+    proto.apply_process_data = function (buffer) {
+      this.process_data = new Float32Array(buffer);
+
+      this.info_data = new Float32Array(buffer, (this.params.MAX_PARTICLES * 4 * 4), this.params.MAX_PARTICLES * 4);
+
+
+      this.b_count = this.process_data[this.process_data.length - 1];
+
+      this.renderer.gl.bindBuffer(34962, this.pos_buffer);
+      this.renderer.gl.bufferData(34962, this.process_data, 35048, 0, this.b_count);
+
+      this.renderer.gl.bindBuffer(34962, this.info_buffer);
+      this.renderer.gl.bufferData(34962, this.info_data, 35048, 0, this.b_count);
+
+      this.state = 1;
+
+    };
+
+    var s = 0;
+    proto.render_mesh = function (renderer, shader, mesh) {
+
+
+      renderer.gl.enable(3042);
+      renderer.gl.blendFunc(770, 771);
+
+      //renderer.gl.blendFunc(770, 1);
+      renderer.gl.depthMask(false);
+      renderer.use_texture(this.texture, 0);
+
+      for (s = 0; s < this.texture_sets.length; s++) {
+        shader.set_uniform('u_texture_sets_rw[' + s + ']', this.texture_sets[s]);
+      }
+
+      renderer.gl.disable(2884);
+
+      renderer.gl.ANGLE_instanced_arrays.drawArraysInstancedANGLE(4, 0, 6, this.b_count/4);
+
+      renderer.gl.enable(2884);
+
+      renderer.gl.disable(3042);
+      renderer.gl.depthMask(true);
+
+    };
+
+    proto.create_mesh = function (system) {
+      this.mesh = new raw.rendering.mesh({
+        flags: 1,
+        geometry: raw.geometry.create({
+          vertex_size: 3,
+          vertices: new Float32Array([
+            -0.5, -0.5, 0,
+            0.5, -0.5, 0,
+            0.5, 0.5, 0,
+            -0.5, -0.5, 0,
+            0.5, 0.5, 0,
+            -0.5, 0.5, 0
+          ]),
+          attr: {
+            a_particle_pos_rw: { item_size: 4, buffer_type: 35048,  divisor: 1 },
+            a_particle_info_rw: { item_size: 4, buffer_type: 35048,  divisor: 1 }
+
+          }
+        }),
+        material: this
+      });
+
+      return this.mesh;
+    };
+
+    var ei = 0;
+
+    proto.queue_particle = function (time, life_decay, x, y, z, vx, vy, vz, ax, ay, az, gravity, rotation, spin, scale, style) {
+
+      if (this.emit_qi < 1) return;
+      ei = this.emit_queue[this.emit_qi--];
+
+      this.emit_queue_buffer[ei++] = this.timer + time;
+      this.emit_queue_buffer[ei++] = 1;
+      this.emit_queue_buffer[ei++] = life_decay;
+      this.emit_queue_buffer[ei++] = x;
+      this.emit_queue_buffer[ei++] = y;
+      this.emit_queue_buffer[ei++] = z;
+      this.emit_queue_buffer[ei++] = vx;
+      this.emit_queue_buffer[ei++] = vy;
+      this.emit_queue_buffer[ei++] = vz;
+
+      if (ax === ay && ay === az) {
+        ax = vx * ax;
+        ay = vy * ay;
+        az = vz * az;
+      }
+
+      this.emit_queue_buffer[ei++] = ax;
+      this.emit_queue_buffer[ei++] = ay;
+      this.emit_queue_buffer[ei++] = az;
+      this.emit_queue_buffer[ei++] = gravity;
+      this.emit_queue_buffer[ei++] = rotation;
+      this.emit_queue_buffer[ei++] = spin;
+      this.emit_queue_buffer[ei++] = scale;
+      this.emit_queue_buffer[ei++] = style;
+
+    };
+    proto.step = (function () {
+      var i = 0;
+      return function (timer) {
+        i = 0;
+        this.timer = timer;
+        while (i < this.emit_queue_buffer.length) {
+          if (this.emit_queue_buffer[i] > 0) {
+
+            if (timer >= this.emit_queue_buffer[i]) {
+              ei = 0;
+              while (ei < this.params.PARTICLE_PACKET_SIZE) {
+                this.process_data[this.emit_i++] = this.emit_queue_buffer[i + ei + 1];
+                ei++;
+              }
+              this.emit_queue_buffer[i] = 0;
+              this.emit_queue[++this.emit_qi] = i;
+            }
+
+
+          }
+
+          i += (this.params.PARTICLE_PACKET_SIZE + 1);
+        }
+      }
+    })();
+
+
+    proto.emit_particle = function (life_decay,x, y, z, vx, vy, vz, ax,ay,az,gravity,rotation,spin, scale,style) {
+      ei = this.emit_i;
+      this.process_data[ei] = 1;
+      this.process_data[ei + 1] = life_decay;
+      this.process_data[ei + 2] = x;
+      this.process_data[ei + 3] = y;
+      this.process_data[ei + 4] = z;
+      this.process_data[ei + 5] = vx;
+      this.process_data[ei + 6] = vy;
+      this.process_data[ei + 7] = vz;
+
+      if (ax === ay && ay === az) {
+        ax = vx * ax;
+        ay = vy * ay;
+        az = vz * az;
+      }
+
+      this.process_data[ei + 8] = ax;
+      this.process_data[ei + 9] = ay;
+      this.process_data[ei + 10] = az;
+      this.process_data[ei + 11] = gravity;
+      this.process_data[ei + 12] = rotation;
+      this.process_data[ei + 13] = spin;
+      this.process_data[ei + 14] = scale;
+      this.process_data[ei + 15] = style;
+      this.emit_i += this.params.PARTICLE_PACKET_SIZE;
+
+    }
+
+    proto.spwan_emitter = function (life, rate, cb, param1, param2, param3, param4) {
+      return this.system._spwan_emitter(this, life, rate, cb, param1, param2, param3, param4);
+    };
+
+    proto.update_styles = function () {
+      this.styles.for_each(function (s, i, self) {
+        if (s.texture_set === undefined) s.texture_set = -1;
+        if (s.texture_alpha === undefined) s.texture_alpha = -1;
+      }, this);
+      this.worker.postMessage([1000, this.styles]);
+    };
+
+    var shader = raw.webgl.shader.parse(glsl["quad-sprite-system"]);
+    return function quad_sprites_sub_system(def) {
+      def = def || {};
+      _super.apply(this, [def]);
+      this.shader = shader
+      this.texture_sets = [];
+      this.styles = def.styles || [];
+      if (def.texture) {
+        this.texture = def.texture;
+        if (def.texture_sets) {
+          var ww = def.texture.width;
+          var hh = def.texture.height;
+          def.texture_sets.for_each(function (tx, i, self) {
+            tx = new Float32Array(tx);
+            tx[0] /= ww;
+            tx[1] /= hh;
+            tx[2] /= ww;
+            tx[3] /= hh;
+            self.texture_sets.push(tx);
+          }, this);
+        }
+
+
+      }
+
+
+      this.params.PARTICLE_PACKET_SIZE = 16;
+      this.set_tansparency(0.99);
+    }
+
+  }, particle_system.sub_system);
 
 
   return particle_system;
@@ -13479,6 +13989,12 @@ gl_FragColor = vec4((get_shadow_sample()));
     if (this.active_shader.camera_version === camera.version) return false;
     this.active_shader.camera_version = camera.version;
     this.active_shader.set_uniform("u_view_projection_rw", camera.view_projection);
+    this.active_shader.set_uniform("u_view_rw", camera.view_inverse);
+    this.active_shader.set_uniform("u_view_fw", camera.fw_vector);
+    this.active_shader.set_uniform("u_view_sd", camera.sd_vector);
+    this.active_shader.set_uniform("u_view_up", camera.up_vector);
+
+
     return (true);
   };
 
@@ -13547,7 +14063,7 @@ gl_FragColor = vec4((get_shadow_sample()));
       this.use_geometry_attribute(0, att);
       this.use_shader(shdr);
       shdr.set_uniform("u_pos_size", u_pos_size);
-      //this.gl.disable(2929);
+      this.gl.disable(2929);
       this.gl.disable(2884);
       this.use_texture(texture, 0);
       this.gl.drawArrays(4, 0, 6);
@@ -14312,6 +14828,9 @@ gl_FragColor = vec4((get_shadow_sample()));
 ﻿raw.application = {};
 raw.application['3d'] = raw.define(function (proto, _super) {
 
+  proto.after_render = function (renderer) {
+
+  };
   proto.run_debug = function (cb,step_size) {
     var last_fps_display_time = 0, app = this, i = 0;
     setTimeout(function () {
@@ -14323,6 +14842,7 @@ raw.application['3d'] = raw.define(function (proto, _super) {
       app.timer = app.fps_timer.current_timer;
       cb(delta);
       app.tick_debug(delta);
+      
       if (app.fps_timer.current_timer - last_fps_display_time > 0.25) {
         last_fps_display_time = app.fps_timer.current_timer;
         if (ctx) {
@@ -14342,7 +14862,7 @@ raw.application['3d'] = raw.define(function (proto, _super) {
           app.renderer.update_debug_canvas();
         }
       }
-
+      app.after_render(app.renderer);
 
 
 

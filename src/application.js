@@ -1,6 +1,9 @@
 ﻿raw.application = {};
 raw.application['3d'] = raw.define(function (proto, _super) {
 
+  proto.after_render = function (renderer) {
+
+  };
   proto.run_debug = function (cb,step_size) {
     var last_fps_display_time = 0, app = this, i = 0;
     setTimeout(function () {
@@ -12,6 +15,7 @@ raw.application['3d'] = raw.define(function (proto, _super) {
       app.timer = app.fps_timer.current_timer;
       cb(delta);
       app.tick_debug(delta);
+      
       if (app.fps_timer.current_timer - last_fps_display_time > 0.25) {
         last_fps_display_time = app.fps_timer.current_timer;
         if (ctx) {
@@ -31,7 +35,7 @@ raw.application['3d'] = raw.define(function (proto, _super) {
           app.renderer.update_debug_canvas();
         }
       }
-
+      app.after_render(app.renderer);
 
 
 

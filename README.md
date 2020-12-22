@@ -13,6 +13,7 @@ Fast and dirty shadow mapping system
 Multi threaded large terrain system with dynamic level of details and mesh optimization
 Skeletal system with dual quaternion skinning
 Basic inverse kinematics using FABRIK
+Multi threaded extendable particle system
 ```
 
 
@@ -22,7 +23,6 @@ Basic inverse kinematics using FABRIK
 ```
 Multi threaded physics engine implement using web assembly
 Improve critical systems using web assembly
-Multi threaded particle system
 Dynamic sound system using basic sound sampler and synthesizer  
 Webvr support with positional 3d sound
 Tools for world editor and game designer
@@ -66,7 +66,7 @@ https://asif2k.github.io/raw/demos/terrain.html
 
 Particle system basic demo
 
-https://asif2k.github.io/raw/demos/particles.html
+https://asif2k.github.io/raw/demos/particles_advanced.html
 
 
 

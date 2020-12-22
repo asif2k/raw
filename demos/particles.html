@@ -8,7 +8,136 @@
   <script src="demo.js"></script>
 </head>
 
-<body>
+<body style="overflow:hidden">
+
+  <script type="text/html">
+    demo_app({ renderer: { pixel_ratio: 1 } }, function (app) {
+
+      var scene_light = app.create_render_item(new raw.shading.light(), function (entity, light) {
+        app.attach_component(entity, 'transform_controller', {
+          rotate: [RD(-125), RD(160), 0]
+        });
+        app.attach_component(entity, 'skybox', {
+          sun_direction: entity.transform_controller.fw_vector
+        });
+        light.enable_shadows({
+          shadow_intensity: 0.15,
+          shadow_map_size: 2048,
+          shadow_camera_distance: 20
+        })
+      });
+
+      var pg = raw.geometry.plane({ width: 300, height: 300, divs: 8 });
+      pg.scale_position_rotation(1, 1, 1, 0, 0, 0, -RD(90), 0, 0);
+
+      app.create_render_item(new raw.rendering.mesh({ geometry: pg, material: new raw.shading.shaded_material() }), function (e, m) {
+        m.material.texture = raw.webgl.texture.from_url("res/r4.jpg", true);
+        raw.math.mat3.translate_rotate_scale(m.material.texture_matrix, 0, 0, 32, 32, 0);
+        e.transform.position[1] = -0.1;
+        m.material.flags += raw.SHADING.RECEIVE_SHADOW;
+      });
+
+      /*
+      app.add_random_grid(60, 12, function (e) {
+
+        if (Math.floor(Math.random() * 5) === 2) {
+          //  e.render_item.items[0].material.set_tansparency(Math.max(Math.random(), 0.6));
+        }
+        e.render_item.items[0].material.flags += raw.SHADING.CAST_SHADOW;
+      });
+      */
+
+      app.mouse_input.mouse_drage = (function (_super_call) {
+        return function (dx, dy, e) {
+          if (e.ctrlKey) {
+            scene_light.transform_controller.yaw_pitch(-dy * 0.005, dx * 0.005);
+            if (scene_light.transform_controller.rotate[0] > 0) {
+              scene_light.transform_controller.rotate[0] = 0;
+            }
+          }
+          else {
+            _super_call.apply(this, [dx, dy, e]);
+          }
+        }
+      })(app.mouse_input.mouse_drage);
+
+
+
+      var ps = app.use_system('particle_system', {});
+
+      var s1 = ps.add_sub_system(new raw.ecs.systems.particle_system.point_sprites({
+        MAX_PARTICLES: 5000,
+        params: { MAX_PARTICLES: 5000 },
+        texture: raw.webgl.texture.create_texture_atlas({
+          width: 2048, height: 2048,
+          inputs: [
+            { src: "res/CIIjvXa.png", tiles_in_row: 10, dest_x: 0, dest_y: 0, dest_size: 64 },
+            { src: "res/CIIjvXa2.png", tiles_in_row: 10, dest_x: 0, dest_y: 64, dest_size: 32 },
+            { src: "res/172607_fire-sprite-png.png", tiles_in_row: 5, dest_x: 0, dest_y: 100, dest_size: 64 },
+
+                ]
+        }),
+        texture_sets: [
+          [0, 0, 1920, 64],
+          [0, 64, 1280, 32],
+          [0, 100, 64 * 6, 64],
+          [64 * 7, 100, 64 * 3, 64],
+        ]
+      }));
+
+
+      ps.step_size = 1 / 30;
+
+      console.log(s1);
+      setTimeout(function () {
+
+        var i = 0;
+
+        s1.queue_particle(1,0, 3,0, 0, 0, 0, 0, -1 / 60,0, 64);
+        s1.queue_particle(1, 1, 3, 0, 0, 0, 0, 0, -1 / 90, 2, 64);
+        s1.queue_particle(1, 2, 3, 0, 0, 0, 0, 0, -1 / 20, 3, 64);
+        s1.spwan_emitter(0, 1 / 5, function (emit) {
+
+
+
+
+        });
+
+
+
+
+      }, 200);
+
+
+
+
+
+      var camera = app.camera;
+      var ca = 0;
+      camera.transform.position[1] = 3;
+
+
+      app.run_debug(function (delta) {
+
+        camera.transform.position[0] = Math.sin(ca * raw.math.DEGTORAD) * 4;
+        camera.transform.position[2] = Math.cos(ca * raw.math.DEGTORAD) * 4;
+
+        camera.transform_controller.yaw_pitch(0, 0.001685);
+
+
+
+        ca += 0.0935;
+        ca = ca % 360;
+
+
+      }, 1 / 60);
+    });
+
+
+
+
+  </script>
+
 
   <script>
     demo_app({ renderer: { pixel_ratio: 1 } }, function (app) {
@@ -73,7 +202,7 @@
           inputs: [
             { src: "res/smoke-particle.png?sad", tiles_in_row: 8, dest_x: 0, dest_y: 0, dest_size: 40 },
             { src: "res/point-particle-sheet.png", tiles_in_row: 5, dest_x: 0, dest_y: 64, dest_size: 32 },
-           
+
             {
               src: "res/flame-sprites.png", tiles_in_row: 5,
               dest_x: 0, dest_y: 200, dest_size: 64,
@@ -91,7 +220,7 @@
         }),
         texture_sets: [
           [0, 0, 1600, 40],
-          [0, 32, 768, 32],
+          [0, 64, 768, 32],
           [0, 64, 512, 128],
           [0, 200, 1088, 64],
           [0, 300, 2048, 128],
@@ -102,39 +231,23 @@
 
       ps.step_size = 1 / 30;
 
-
-      console.log(ps);
       console.log(s1);
       setTimeout(function () {
-        
-        for (var e = 0; e < 10; e++) {
-          s1.queue_particle(Math.random() * 15, (Math.random() - 0.5) * 3, 3, (Math.random() - 0.5) * 3,
-            0.001, 0, 0, 1, -1 / 80, 5, 40);
-        }
-        
-        s1.spwan_emitter(0, 1/5, function (emit) {
-          s1.emit_particle(
-            (Math.random() - 0.5) * 4,
-            2, (Math.random() - 0.5) * 4, 0, 0, 0, 1, 1 / 90, 4, 80);
-        });
 
+        var i = 0;
+        s1.spwan_emitter(0, 1 / 10, function (emit) {
 
+          /*
+          s1.emit_particle(Math.sin(s1.timer) * 1, 1, Math.cos(s1.timer) * 1,
+            (Math.random() - 0.5) * 0.001, 0.025, (Math.random() - 0.5) * 0.001
+            , -0.00028, 1 / 190, 3, 30);
+            */
 
-
-
-        s1.spwan_emitter(0, 1/ 30, function (emit) {          
-          emit.sys.emit_particle((Math.random() - 0.5) * 4, 2, (Math.random() - 0.5) * 4,
-            (Math.random() - 0.5) * 0.005, 0.0035, (Math.random() - 0.5) * 0.005,
-            1, 1 / 80, 3, 40);
-
-
-          emit.sys.emit_particle(0, 2, 0,
-            (Math.random() - 0.5) * 0.005, 0.0095, (Math.random() - 0.5) * 0.005,
-            1, 1 / 130, 3, 40);
-
-          s1.emit_particle(0, 2, 0,
-            (Math.random() - 0.5) * 0.0085, 0.0085, (Math.random() - 0.5) * 0.0085
-            , 1, 1 / 190, 0, 80);
+          for (i = 0; i < 8; i++) {
+            s1.queue_particle(i * 1.85, i * 1.512, 1, 0,
+              (Math.random() - 0.5) * 0.00821, 0.045, (Math.random() - 0.5) * 0.00821
+              , -0.00021, 1 / 190, i % 5, 50);
+          }
 
         });
 
@@ -149,11 +262,15 @@
 
       var camera = app.camera;
       var ca = 0;
-      camera.transform.position[1] = 3;
+      camera.transform.position[1] = 4;
+
+      app.after_render = function (renderer) {
+        //renderer.draw_textured_quad(s1.texture, 0.65, 0.5, 0.25, 0.35);
+      };
       app.run_debug(function (delta) {
 
-        camera.transform.position[0] = Math.sin(ca * raw.math.DEGTORAD) * 4;
-        camera.transform.position[2] = Math.cos(ca * raw.math.DEGTORAD) * 4;
+        camera.transform.position[0] = Math.sin(ca * raw.math.DEGTORAD) * 7;
+        camera.transform.position[2] = Math.cos(ca * raw.math.DEGTORAD) * 7;
 
         camera.transform_controller.yaw_pitch(0, 0.001685);
 
@@ -172,8 +289,7 @@
   </script>
 
 
-
-  <img id="test_tile" style="position:absolute;left:0;pointer-events:none;display:none" />
+  <img id="test_tile" height="100%" style="position:absolute;left:0;pointer-events:none;display1:none" />
 
 </body>
 </html>

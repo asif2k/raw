@@ -33,7 +33,7 @@ raw.geometry = raw.define(function (proto) {
     attribute.array = attribute.array || null;
     attribute.data_offset = attribute.data_offset || 0;
     attribute.data_length = attribute.data_length || 0;
-
+    attribute.buffer_type = attribute.buffer_type || raw.GL_STATIC_DRAW;
     attribute.name = name;
     attribute.geo_id = this.uuid;
     if (attribute.data !== null) {
@@ -486,7 +486,7 @@ raw.geometry = raw.define(function (proto) {
 
       if (def.attr) {
         for (a in def.attr) {
-          g.add_attribute("a_color_rw",def.attr[a]);
+          g.add_attribute(a,def.attr[a]);
         }
       }
 

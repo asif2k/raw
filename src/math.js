@@ -3,6 +3,11 @@ raw.math.vec2 = raw.create_float32(2);
 raw.math.vec3 = raw.create_float32(3);
 raw.math.vec4 = raw.create_float32(4);
 
+raw.math.little_endian = (function() {
+  var uint8_array = new Uint8Array([0xAA, 0xBB]);
+  var uint16_array = new Uint16Array(uint8_array.buffer);
+  return uint16_array[0] === 0xBBAA;
+})();
 raw.math.quat = raw.create_float32(4, function (out) {
   out[3] = 1;
   return out;
